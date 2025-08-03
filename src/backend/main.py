@@ -14,22 +14,28 @@ app = FastAPI(title="CBRCS API", description="CBRC Students Platform API", versi
 app.mount("/uploads", StaticFiles(directory=os.path.abspath("uploads")), name="uploads")
 
 # Get CORS origins from environment variable or use defaults
-cors_origins = os.getenv("CORS_ORIGINS", 
+cors_origins_env = os.getenv("CORS_ORIGINS", 
     "http://localhost:3000,http://localhost:5173,http://localhost:5174,http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:5174"
-).split(",")
+)
+cors_origins = [origin.strip() for origin in cors_origins_env.split(",") if origin.strip()]
 
-# Add production origins
+# Add production origins (excluding wildcard patterns)
 cors_origins.extend([
+    "https://cbrcs-final.vercel.app",
     "https://cbrcs.vercel.app",
     "https://cbrcs-git-aaron-maos-projects-a7ae5dee.vercel.app",
     "http://frontend",  # Docker service name
     "http://localhost",  # Docker frontend
 ])
 
-# CORS middleware
+# Remove duplicates and filter out empty strings
+cors_origins = list(set([origin for origin in cors_origins if origin and not origin.startswith("https://*")]))
+
+# CORS middleware with regex for Vercel subdomains
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
