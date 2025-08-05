@@ -41,14 +41,19 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
   const localStreamRef = useRef(null);
   const socketRef = useRef(null);
   const chatContainerRef = useRef(null);
+  const peerConnectionsRef = useRef(new Map()); // Store peer connections
+  const remoteVideosRef = useRef(new Map()); // Store remote video refs
 
   // WebSocket connection setup
   useEffect(() => {
     if (!sessionInfo) return;
 
-    // Connect to the backend WebSocket server (port 8000), not the frontend dev server
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//localhost:8000${sessionInfo.websocket_url}`;
+    // Get the backend base URL from environment or fallback to deployed backend
+    const baseUrl = import.meta.env.VITE_API_URL || "https://cbrcs-final.onrender.com";
+    
+    // Convert HTTP/HTTPS base URL to WebSocket URL
+    const wsBaseUrl = baseUrl.replace(/^http/, 'ws');
+    const wsUrl = `${wsBaseUrl}${sessionInfo.websocket_url}`;
     
     console.log("Connecting to WebSocket:", wsUrl);
     const ws = new WebSocket(wsUrl);
@@ -104,6 +109,8 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
       case "participants_update":
         setParticipants(data.participants);
         setRoomInfo(data.room_info);
+        // Handle new participants for WebRTC connections
+        handleParticipantsUpdate(data.participants);
         break;
         
       case "chat_message":
@@ -125,6 +132,13 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         console.log(`${data.participant_name} ${data.hand_raised ? 'raised' : 'lowered'} their hand`);
         break;
         
+      case "webrtc_offer":
+      case "webrtc_answer":
+      case "webrtc_ice_candidate":
+        // Handle WebRTC signaling
+        handleWebRTCSignaling(data);
+        break;
+        
       case "error":
         console.error("Server error:", data.message);
         alert(data.message);
@@ -134,6 +148,116 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         console.log("Unknown message type:", data.type);
     }
   }, []);
+
+  // WebRTC functions
+  const createPeerConnection = useCallback((participantId) => {
+    const peerConnection = new RTCPeerConnection({
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+      ]
+    });
+
+    // Add local stream to peer connection
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => {
+        peerConnection.addTrack(track, localStreamRef.current);
+      });
+    }
+
+    // Handle remote stream
+    peerConnection.ontrack = (event) => {
+      const [remoteStream] = event.streams;
+      const videoElement = remoteVideosRef.current.get(participantId);
+      if (videoElement) {
+        videoElement.srcObject = remoteStream;
+      }
+    };
+
+    // Handle ICE candidates
+    peerConnection.onicecandidate = (event) => {
+      if (event.candidate && socketRef.current?.readyState === WebSocket.OPEN) {
+        socketRef.current.send(JSON.stringify({
+          type: "webrtc_ice_candidate",
+          target_participant_id: participantId,
+          data: { candidate: event.candidate }
+        }));
+      }
+    };
+
+    peerConnectionsRef.current.set(participantId, peerConnection);
+    return peerConnection;
+  }, []);
+
+  const handleParticipantsUpdate = useCallback(async (newParticipants) => {
+    const currentParticipantIds = new Set(participants.map(p => p.id));
+    const newParticipantIds = new Set(newParticipants.map(p => p.id));
+
+    // Handle new participants (create offers)
+    for (const participant of newParticipants) {
+      if (participant.user_id !== userId && !currentParticipantIds.has(participant.id)) {
+        try {
+          const peerConnection = createPeerConnection(participant.id);
+          const offer = await peerConnection.createOffer();
+          await peerConnection.setLocalDescription(offer);
+
+          if (socketRef.current?.readyState === WebSocket.OPEN) {
+            socketRef.current.send(JSON.stringify({
+              type: "webrtc_offer",
+              target_participant_id: participant.id,
+              data: { offer }
+            }));
+          }
+        } catch (error) {
+          console.error("Error creating offer:", error);
+        }
+      }
+    }
+
+    // Clean up disconnected participants
+    for (const participantId of currentParticipantIds) {
+      if (!newParticipantIds.has(participantId)) {
+        const peerConnection = peerConnectionsRef.current.get(participantId);
+        if (peerConnection) {
+          peerConnection.close();
+          peerConnectionsRef.current.delete(participantId);
+        }
+        remoteVideosRef.current.delete(participantId);
+      }
+    }
+  }, [participants, userId, createPeerConnection]);
+
+  const handleWebRTCSignaling = useCallback(async (data) => {
+    const { type, from_participant_id, data: signalData } = data;
+
+    try {
+      let peerConnection = peerConnectionsRef.current.get(from_participant_id);
+
+      if (type === "webrtc_offer") {
+        if (!peerConnection) {
+          peerConnection = createPeerConnection(from_participant_id);
+        }
+
+        await peerConnection.setRemoteDescription(signalData.offer);
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+
+        if (socketRef.current?.readyState === WebSocket.OPEN) {
+          socketRef.current.send(JSON.stringify({
+            type: "webrtc_answer",
+            target_participant_id: from_participant_id,
+            data: { answer }
+          }));
+        }
+      } else if (type === "webrtc_answer" && peerConnection) {
+        await peerConnection.setRemoteDescription(signalData.answer);
+      } else if (type === "webrtc_ice_candidate" && peerConnection) {
+        await peerConnection.addIceCandidate(signalData.candidate);
+      }
+    } catch (error) {
+      console.error("WebRTC signaling error:", error);
+    }
+  }, [createPeerConnection]);
 
   // Media controls
   const toggleMute = useCallback(() => {
@@ -259,12 +383,20 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
     }
   }, [sendMessage]);
 
-  // Clean up media streams on unmount
+  // Clean up media streams and peer connections on unmount
   useEffect(() => {
     return () => {
+      // Stop local media tracks
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach(track => track.stop());
       }
+      
+      // Close all peer connections
+      peerConnectionsRef.current.forEach(peerConnection => {
+        peerConnection.close();
+      });
+      peerConnectionsRef.current.clear();
+      remoteVideosRef.current.clear();
     };
   }, []);
 
@@ -356,9 +488,22 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {participants.filter(p => p.user_id !== userId).map((participant) => (
               <div key={participant.id} className="relative bg-gray-800 rounded-lg overflow-hidden" style={{ aspectRatio: '16/9' }}>
-                <div className="w-full h-full flex items-center justify-center text-white">
-                  <VideoOff className="w-8 h-8" />
-                </div>
+                {!participant.camera_off ? (
+                  <video
+                    ref={(el) => {
+                      if (el) {
+                        remoteVideosRef.current.set(participant.id, el);
+                      }
+                    }}
+                    autoPlay
+                    playsInline
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-white">
+                    <VideoOff className="w-8 h-8" />
+                  </div>
+                )}
                 <div className="absolute bottom-2 left-2 bg-black bg-opacity-50 text-white px-2 py-1 rounded text-sm">
                   {participant.name}
                   {participant.muted && <span className="text-red-400 ml-1">(Muted)</span>}
