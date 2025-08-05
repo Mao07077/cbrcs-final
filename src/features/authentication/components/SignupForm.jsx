@@ -155,10 +155,10 @@ const SignupForm = () => {
           className="form-input"
         >
           <option value="">Select Role</option>
-          <option>Student</option>
-          <option>Instructor</option>
+          <option value="student">Student</option>
+          <option value="instructor">Instructor</option>
         </select>
-        {formData.role === "Student" && (
+        {formData.role === "student" && (
           <select
             name="program"
             onChange={handleChange}
