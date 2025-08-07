@@ -129,13 +129,22 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         await joinSession(sessionInfo.group.id);
 
         // Now establish WebSocket connection
-        const baseUrl = import.meta.env.VITE_API_URL || "https://cbrcs-final.onrender.com";
+        const baseUrl = (import.meta.env.VITE_API_URL || "https://cbrcs-final.onrender.com").replace(/\/$/, '');
         const wsBaseUrl = baseUrl.replace(/^http/, 'ws');
-        // Remove leading slash from websocket_url to avoid double slash
-        const websocketPath = sessionInfo.websocket_url.startsWith('/') ? 
-          sessionInfo.websocket_url.substring(1) : 
-          sessionInfo.websocket_url;
-        const wsUrl = `${wsBaseUrl}/${websocketPath}`;
+        console.log("Base URL:", baseUrl);
+        console.log("WS Base URL:", wsBaseUrl);
+        console.log("WebSocket URL from backend:", sessionInfo.websocket_url);
+        
+        // Ensure websocket_url starts with / and remove any double slashes
+        let websocketPath = sessionInfo.websocket_url;
+        if (!websocketPath.startsWith('/')) {
+          websocketPath = '/' + websocketPath;
+        }
+        console.log("WebSocket path after processing:", websocketPath);
+        
+        const wsUrl = `${wsBaseUrl}${websocketPath}`;
+        
+        console.log("Final WebSocket URL:", wsUrl);
         
         console.log("Connecting to WebSocket:", wsUrl);
         const ws = new WebSocket(wsUrl);
