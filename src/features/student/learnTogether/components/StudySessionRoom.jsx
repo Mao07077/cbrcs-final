@@ -12,21 +12,44 @@ import {
   MonitorOff,
   Settings
 } from "lucide-react";
+import useLearnTogetherStore from "../../../../store/student/learnTogetherStore";
+import SessionEndNotification from "../../../../components/common/SessionEndNotification";
 
 const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => {
+  const { leaveSession } = useLearnTogetherStore();
+  
+  // Add notification state
+  const [showEndNotification, setShowEndNotification] = useState(false);
+  const [endNotificationMessage, setEndNotificationMessage] = useState("");
+  const [endNotificationType, setEndNotificationType] = useState("success");
   // WebSocket connection
   const [socket, setSocket] = useState(null);
   const [connectionStatus, setConnectionStatus] = useState("connecting");
   
-  // Room state
-  const [participants, setParticipants] = useState([]);
-  const [roomInfo, setRoomInfo] = useState(null);
-  
-  // Local media state
+  // Local media state (define these BEFORE using them)
   const [isMuted, setIsMuted] = useState(true);
   const [isCameraOff, setIsCameraOff] = useState(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [handRaised, setHandRaised] = useState(false);
+  const [mediaError, setMediaError] = useState(null);
+  
+  // Room state
+  const [participants, setParticipants] = useState([]);
+  const [roomInfo, setRoomInfo] = useState(null);
+
+  // Initialize participants with current user
+  useEffect(() => {
+    if (userId && userName) {
+      setParticipants([{
+        id: `user_${userId}`,
+        user_id: userId,
+        name: userName,
+        muted: isMuted,
+        camera_off: isCameraOff,
+        is_screen_sharing: isScreenSharing
+      }]);
+    }
+  }, [userId, userName, isMuted, isCameraOff, isScreenSharing]);
   
   // Chat state
   const [chatMessages, setChatMessages] = useState([]);
@@ -44,56 +67,123 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
   const peerConnectionsRef = useRef(new Map()); // Store peer connections
   const remoteVideosRef = useRef(new Map()); // Store remote video refs
 
+  // Initialize media on component mount
+  useEffect(() => {
+    const initializeMedia = async () => {
+      try {
+        // Start with audio and video off, but get permission
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: false,
+          audio: false
+        });
+        
+        // Stop the tracks immediately since we start muted/camera off
+        stream.getTracks().forEach(track => track.stop());
+        
+        console.log("Media permissions granted");
+        setMediaError(null);
+      } catch (error) {
+        console.error("Failed to get media permissions:", error);
+        setMediaError("Unable to access camera/microphone. Please check your permissions.");
+      }
+    };
+
+    initializeMedia();
+  }, []);
+
+  // Initialize media when component loads
+  useEffect(() => {
+    const initializeMedia = async () => {
+      try {
+        // Start with audio only initially 
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          video: false, // Start with camera off
+          audio: true   // Start with mic muted but available
+        });
+        
+        localStreamRef.current = stream;
+        
+        // Mute audio by default
+        const audioTrack = stream.getAudioTracks()[0];
+        if (audioTrack) {
+          audioTrack.enabled = false; // Muted by default
+        }
+        
+      } catch (error) {
+        console.error("Failed to initialize media:", error);
+        // Continue without media if permission denied
+      }
+    };
+
+    initializeMedia();
+  }, []); // Run once on mount
+
   // WebSocket connection setup
   useEffect(() => {
     if (!sessionInfo) return;
 
-    // Get the backend base URL from environment or fallback to deployed backend
-    const baseUrl = import.meta.env.VITE_API_URL || "https://cbrcs-final.onrender.com";
-    
-    // Convert HTTP/HTTPS base URL to WebSocket URL
-    const wsBaseUrl = baseUrl.replace(/^http/, 'ws');
-    const wsUrl = `${wsBaseUrl}${sessionInfo.websocket_url}`;
-    
-    console.log("Connecting to WebSocket:", wsUrl);
-    const ws = new WebSocket(wsUrl);
-    socketRef.current = ws;
-
-    ws.onopen = () => {
-      console.log("WebSocket connected");
-      setConnectionStatus("connected");
-      
-      // Send initial connection data
-      ws.send(JSON.stringify({
-        user_id: userId,
-        user_name: userName
-      }));
-    };
-
-    ws.onmessage = (event) => {
+    const initializeSession = async () => {
       try {
-        const data = JSON.parse(event.data);
-        handleWebSocketMessage(data);
+        // Just join the existing active session
+        const { joinSession } = useLearnTogetherStore.getState();
+        await joinSession(sessionInfo.id);
+
+        // Now establish WebSocket connection
+        const baseUrl = import.meta.env.VITE_API_URL || "https://cbrcs-final.onrender.com";
+        const wsBaseUrl = baseUrl.replace(/^http/, 'ws');
+        const wsUrl = `${wsBaseUrl}${sessionInfo.websocket_url}`;
+        
+        console.log("Connecting to WebSocket:", wsUrl);
+        const ws = new WebSocket(wsUrl);
+        socketRef.current = ws;
+
+        ws.onopen = () => {
+          console.log("WebSocket connected");
+          setConnectionStatus("connected");
+          
+          // Send initial connection data with current media state
+          ws.send(JSON.stringify({
+            type: "join_session",
+            user_id: userId,
+            user_name: userName,
+            muted: isMuted,
+            camera_off: isCameraOff,
+            is_screen_sharing: isScreenSharing,
+            hand_raised: handRaised
+          }));
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            handleWebSocketMessage(data);
+          } catch (error) {
+            console.error("Failed to parse WebSocket message:", error);
+          }
+        };
+
+        ws.onclose = () => {
+          console.log("WebSocket disconnected");
+          setConnectionStatus("disconnected");
+        };
+
+        ws.onerror = (error) => {
+          console.error("WebSocket error:", error);
+          setConnectionStatus("error");
+        };
+
+        setSocket(ws);
       } catch (error) {
-        console.error("Failed to parse WebSocket message:", error);
+        console.error("Failed to initialize session:", error);
+        setConnectionStatus("error");
       }
     };
 
-    ws.onclose = () => {
-      console.log("WebSocket disconnected");
-      setConnectionStatus("disconnected");
-    };
-
-    ws.onerror = (error) => {
-      console.error("WebSocket error:", error);
-      setConnectionStatus("error");
-    };
-
-    setSocket(ws);
+    initializeSession();
 
     return () => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.close();
+      if (socketRef.current?.readyState === WebSocket.OPEN) {
+        socketRef.current.close();
       }
     };
   }, [sessionInfo, userId, userName]);
@@ -107,10 +197,25 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         break;
         
       case "participants_update":
-        setParticipants(data.participants);
+        console.log("Participants update:", data.participants);
+        // Always include current user in participants list
+        const currentUser = {
+          id: `user_${userId}`,
+          user_id: userId,
+          name: userName,
+          muted: isMuted,
+          camera_off: isCameraOff,
+          is_screen_sharing: isScreenSharing
+        };
+        
+        // Filter out current user from server data and add our local version
+        const otherParticipants = data.participants.filter(p => p.user_id !== userId);
+        const allParticipants = [currentUser, ...otherParticipants];
+        
+        setParticipants(allParticipants);
         setRoomInfo(data.room_info);
         // Handle new participants for WebRTC connections
-        handleParticipantsUpdate(data.participants);
+        handleParticipantsUpdate(allParticipants);
         break;
         
       case "chat_message":
@@ -260,23 +365,55 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
   }, [createPeerConnection]);
 
   // Media controls
-  const toggleMute = useCallback(() => {
-    if (localStreamRef.current) {
-      const audioTrack = localStreamRef.current.getAudioTracks()[0];
-      if (audioTrack) {
-        audioTrack.enabled = isMuted;
-        setIsMuted(!isMuted);
-        
-        // Send status update
-        if (socketRef.current?.readyState === WebSocket.OPEN) {
-          socketRef.current.send(JSON.stringify({
-            type: "status_update",
-            muted: !isMuted
-          }));
+  const toggleMute = useCallback(async () => {
+    try {
+      if (isMuted) {
+        // Turn microphone on
+        if (!localStreamRef.current || !localStreamRef.current.getAudioTracks().length) {
+          const stream = await navigator.mediaDevices.getUserMedia({ 
+            audio: true, 
+            video: !isCameraOff 
+          });
+          
+          if (localStreamRef.current) {
+            // Replace existing stream
+            localStreamRef.current.getTracks().forEach(track => track.stop());
+          }
+          
+          localStreamRef.current = stream;
+          if (localVideoRef.current && !isCameraOff) {
+            localVideoRef.current.srcObject = stream;
+          }
+        } else {
+          const audioTrack = localStreamRef.current.getAudioTracks()[0];
+          if (audioTrack) {
+            audioTrack.enabled = true;
+          }
         }
+        setIsMuted(false);
+      } else {
+        // Turn microphone off
+        if (localStreamRef.current) {
+          const audioTrack = localStreamRef.current.getAudioTracks()[0];
+          if (audioTrack) {
+            audioTrack.enabled = false;
+          }
+        }
+        setIsMuted(true);
       }
+      
+      // Send status update
+      if (socketRef.current?.readyState === WebSocket.OPEN) {
+        socketRef.current.send(JSON.stringify({
+          type: "status_update",
+          muted: !isMuted
+        }));
+      }
+    } catch (error) {
+      console.error("Microphone toggle error:", error);
+      setMediaError("Failed to access microphone. Please check permissions.");
     }
-  }, [isMuted]);
+  }, [isMuted, isCameraOff]);
 
   const toggleCamera = useCallback(async () => {
     try {
@@ -286,32 +423,45 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
           video: true, 
           audio: !isMuted 
         });
+        
+        if (localStreamRef.current) {
+          // Stop existing tracks
+          localStreamRef.current.getTracks().forEach(track => track.stop());
+        }
+        
         localStreamRef.current = stream;
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
         }
+        setIsCameraOff(false);
       } else {
         // Turn camera off
         if (localStreamRef.current) {
-          localStreamRef.current.getVideoTracks().forEach(track => track.stop());
+          const videoTracks = localStreamRef.current.getVideoTracks();
+          videoTracks.forEach(track => {
+            track.stop();
+            localStreamRef.current.removeTrack(track);
+          });
         }
+        
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = null;
         }
+        setIsCameraOff(true);
       }
-      
-      setIsCameraOff(!isCameraOff);
       
       // Send status update
       if (socketRef.current?.readyState === WebSocket.OPEN) {
         socketRef.current.send(JSON.stringify({
           type: "status_update",
-          camera_off: !isCameraOff
+          camera_off: isCameraOff
         }));
       }
+      
+      setMediaError(null);
     } catch (error) {
       console.error("Camera toggle error:", error);
-      alert("Failed to access camera. Please check permissions.");
+      setMediaError("Failed to access camera. Please check permissions and ensure your camera isn't being used by another application.");
     }
   }, [isCameraOff, isMuted]);
 
@@ -383,6 +533,57 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
     }
   }, [sendMessage]);
 
+  // Handle leaving session with backend cleanup
+  const handleLeaveSession = useCallback(async () => {
+    try {
+      // Clean up local resources first
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+      
+      // Close all peer connections
+      peerConnectionsRef.current.forEach(peerConnection => {
+        peerConnection.close();
+      });
+      peerConnectionsRef.current.clear();
+      remoteVideosRef.current.clear();
+
+      // Close WebSocket connection
+      if (socketRef.current?.readyState === WebSocket.OPEN) {
+        socketRef.current.close();
+      }
+
+      // Notify backend about leaving the session
+      if (sessionInfo?.id) {
+        const result = await leaveSession(sessionInfo.id);
+        if (result?.group_deleted) {
+          setEndNotificationMessage("Study group has been automatically deleted since no participants remain.");
+          setEndNotificationType("success");
+          setShowEndNotification(true);
+          return; // Don't call onLeaveSession immediately, wait for user acknowledgment
+        } else if (result?.success) {
+          setEndNotificationMessage("You have left the study session.");
+          setEndNotificationType("success");
+          setShowEndNotification(true);
+          return;
+        }
+      }
+
+      // If no backend result or error, just leave
+      onLeaveSession();
+    } catch (error) {
+      console.error("Error leaving session:", error);
+      setEndNotificationMessage("There was an error leaving the session, but you have been disconnected.");
+      setEndNotificationType("error");
+      setShowEndNotification(true);
+    }
+  }, [sessionInfo, leaveSession, onLeaveSession]);
+
+  const handleEndNotificationClose = () => {
+    setShowEndNotification(false);
+    onLeaveSession();
+  };
+
   // Clean up media streams and peer connections on unmount
   useEffect(() => {
     return () => {
@@ -425,7 +626,7 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
           <h2 className="text-2xl font-bold mb-4">Connection Error</h2>
           <p className="mb-4">Failed to connect to the study session.</p>
           <button 
-            onClick={onLeaveSession}
+            onClick={handleLeaveSession}
             className="px-6 py-3 bg-blue-600 rounded-lg hover:bg-blue-700"
           >
             Back to Study Groups
@@ -448,8 +649,15 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
             <Users className="w-5 h-5" />
             <span>{participants.length} participants</span>
           </div>
+          
+          {mediaError && (
+            <div className="text-red-400 text-sm max-w-xs">
+              {mediaError}
+            </div>
+          )}
+          
           <button
-            onClick={onLeaveSession}
+            onClick={handleLeaveSession}
             className="px-4 py-2 bg-red-600 rounded-lg hover:bg-red-700 flex items-center gap-2"
           >
             <Phone className="w-4 h-4" />
@@ -464,6 +672,7 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         <div className="flex-1 p-4">
           {/* Local video preview */}
           <div className="mb-4">
+            <h3 className="text-white mb-2 font-semibold">You</h3>
             <div className="relative bg-gray-800 rounded-lg overflow-hidden" style={{ aspectRatio: '16/9', maxWidth: '300px' }}>
               {!isCameraOff ? (
                 <video
@@ -474,17 +683,28 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
                   className="w-full h-full object-cover"
                 />
               ) : (
-                <div className="w-full h-full flex items-center justify-center text-white">
-                  <VideoOff className="w-12 h-12" />
+                <div className="w-full h-full flex items-center justify-center text-white bg-gray-700">
+                  <div className="text-center">
+                    <VideoOff className="w-12 h-12 mx-auto mb-2" />
+                    <p className="text-sm">Camera Off</p>
+                  </div>
                 </div>
               )}
               <div className="absolute bottom-2 left-2 bg-black bg-opacity-50 text-white px-2 py-1 rounded text-sm">
                 You {isMuted && <span className="text-red-400">(Muted)</span>}
+                {!isCameraOff && <span className="text-green-400 ml-1">(Camera On)</span>}
               </div>
             </div>
           </div>
 
-          {/* Participants grid - placeholder for future WebRTC implementation */}
+          {/* Other Participants */}
+          {participants.length > 1 && (
+            <div className="mb-4">
+              <h3 className="text-white mb-2 font-semibold">Other Participants ({participants.length - 1})</h3>
+            </div>
+          )}
+
+          {/* Participants grid */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {participants.filter(p => p.user_id !== userId).map((participant) => (
               <div key={participant.id} className="relative bg-gray-800 rounded-lg overflow-hidden" style={{ aspectRatio: '16/9' }}>
@@ -500,18 +720,32 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
                     className="w-full h-full object-cover"
                   />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center text-white">
-                    <VideoOff className="w-8 h-8" />
+                  <div className="w-full h-full flex items-center justify-center text-white bg-gray-700">
+                    <div className="text-center">
+                      <VideoOff className="w-8 h-8 mx-auto mb-2" />
+                      <p className="text-xs">{participant.name}</p>
+                    </div>
                   </div>
                 )}
                 <div className="absolute bottom-2 left-2 bg-black bg-opacity-50 text-white px-2 py-1 rounded text-sm">
                   {participant.name}
                   {participant.muted && <span className="text-red-400 ml-1">(Muted)</span>}
-                  {participant.is_screen_sharing && <span className="text-green-400 ml-1">(Sharing)</span>}
+                  {!participant.camera_off && <span className="text-green-400 ml-1">(Camera On)</span>}
+                  {participant.is_screen_sharing && <span className="text-blue-400 ml-1">(Sharing)</span>}
+                  {participant.hand_raised && <span className="text-yellow-400 ml-1">✋</span>}
                 </div>
               </div>
             ))}
           </div>
+
+          {/* Show message if user is alone */}
+          {participants.length === 1 && (
+            <div className="text-center text-gray-400 mt-8">
+              <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <p>You're the only one in this session right now.</p>
+              <p className="text-sm mt-2">Share the session link to invite others!</p>
+            </div>
+          )}
         </div>
 
         {/* Chat sidebar */}
@@ -605,6 +839,14 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
           <Settings className="w-6 h-6 text-white" />
         </button>
       </div>
+
+      {/* Session End Notification */}
+      <SessionEndNotification
+        isVisible={showEndNotification}
+        message={endNotificationMessage}
+        type={endNotificationType}
+        onClose={handleEndNotificationClose}
+      />
     </div>
   );
 };

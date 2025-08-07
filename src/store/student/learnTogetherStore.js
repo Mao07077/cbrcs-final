@@ -7,13 +7,20 @@ const useLearnTogetherStore = create((set, get) => ({
   isModalOpen: false,
   isLoading: false,
   error: null,
+  showOnlyActiveStudySessions: false, // Toggle for filtering live sessions
 
-  fetchGroups: async () => {
+  fetchGroups: async (activeOnly = false) => {
     set({ isLoading: true, error: null });
     try {
-      // Fetch all available study groups
-      const response = await apiClient.get('/api/study-groups');
+      // Fetch active sessions or all groups based on parameter
+      const endpoint = activeOnly ? '/api/study-groups/active' : '/api/study-groups';
+      console.log(`Fetching groups from endpoint: ${endpoint}`); // Debug log
+      
+      const response = await apiClient.get(endpoint);
+      console.log("Groups fetch response:", response.data); // Debug log
+      
       if (response.data.success) {
+        console.log(`Setting ${response.data.groups.length} groups in state`); // Debug log
         set({ groups: response.data.groups, isLoading: false });
       } else {
         throw new Error("Failed to fetch study groups");
@@ -39,32 +46,66 @@ const useLearnTogetherStore = create((set, get) => ({
         throw new Error("User not authenticated");
       }
 
+      console.log("Creating group with data:", newGroup); // Debug log
+      console.log("User data:", userData.id_number); // Debug log
+
       const groupPayload = {
         ...newGroup,
         creator_id: userData.id_number,
         members: [userData.id_number]
       };
 
+      console.log("Sending group payload:", groupPayload); // Debug log
+
       const response = await apiClient.post("/api/study-groups", groupPayload);
       const createdGroup = response.data.group;
+      
+      console.log("Created group response:", createdGroup); // Debug log
+      console.log("is_session_active value:", createdGroup.is_session_active); // Debug log
+      console.log("is_session_active type:", typeof createdGroup.is_session_active); // Debug log
 
-      set((state) => ({
-        groups: [createdGroup, ...state.groups],
-        isModalOpen: false,
-        isLoading: false
-      }));
+      // Since we only show active sessions, add it to the groups if it's active
+      // Check multiple ways in case of type issues
+      const isActive = createdGroup.is_session_active === true || 
+                      createdGroup.is_session_active === "true" || 
+                      createdGroup.is_session_active === 1;
+      
+      if (isActive) {
+        console.log("Adding active group to state"); // Debug log
+        set((state) => ({
+          groups: [createdGroup, ...state.groups],
+          isModalOpen: false,
+          isLoading: false
+        }));
+      } else {
+        console.log("Group is not active, not adding to state"); // Debug log
+        console.log("Full group object:", JSON.stringify(createdGroup, null, 2)); // Debug log
+        set({
+          isModalOpen: false,
+          isLoading: false
+        });
+      }
+
+      return createdGroup; // Return the created group
     } catch (error) {
       console.error("Create study group error:", error);
       // Fallback to local add
+      const fallbackGroup = { 
+        ...newGroup, 
+        id: `group${Date.now()}`, 
+        members: ["You"],
+        is_session_active: true,
+        active_participants: [userData?.id_number || "You"]
+      };
+      
       set((state) => ({
-        groups: [
-          { ...newGroup, id: `group${Date.now()}`, members: ["You"] },
-          ...state.groups,
-        ],
+        groups: [fallbackGroup, ...state.groups],
         isModalOpen: false,
         isLoading: false,
         error: "Failed to create study group"
       }));
+
+      return fallbackGroup; // Return fallback group
     }
   },
 
@@ -83,6 +124,118 @@ const useLearnTogetherStore = create((set, get) => ({
       console.error("Join group error:", error);
       set({ error: "Failed to join group" });
     }
+  },
+
+  startSession: async (groupId) => {
+    try {
+      const { userData } = useAuthStore.getState();
+      if (!userData?.id_number) {
+        throw new Error("User not authenticated");
+      }
+
+      const response = await apiClient.post(`/api/study-groups/${groupId}/start-session`, {
+        user_id: userData.id_number
+      });
+
+      if (response.data.success) {
+        // Refresh groups to show updated status
+        get().fetchGroups();
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error("Start session error:", error);
+      set({ error: "Failed to start session" });
+      return false;
+    }
+  },
+
+  endSession: async (groupId, deleteGroup = true) => {
+    try {
+      const { userData } = useAuthStore.getState();
+      if (!userData?.id_number) {
+        throw new Error("User not authenticated");
+      }
+
+      const response = await apiClient.post(`/api/study-groups/${groupId}/end-session`, {
+        user_id: userData.id_number,
+        delete_group: deleteGroup
+      });
+
+      if (response.data.success) {
+        // Remove group from local state if it was deleted
+        if (response.data.group_deleted) {
+          set((state) => ({
+            groups: state.groups.filter(group => group.id !== groupId)
+          }));
+        } else {
+          // Refresh groups to show updated status
+          get().fetchGroups();
+        }
+        return response.data;
+      }
+      return null;
+    } catch (error) {
+      console.error("End session error:", error);
+      set({ error: "Failed to end session" });
+      return null;
+    }
+  },
+
+  joinSession: async (groupId) => {
+    try {
+      const { userData } = useAuthStore.getState();
+      if (!userData?.id_number) {
+        throw new Error("User not authenticated");
+      }
+
+      const response = await apiClient.post(`/api/study-groups/${groupId}/join-session`, {
+        user_id: userData.id_number
+      });
+
+      return response.data.success;
+    } catch (error) {
+      console.error("Join session error:", error);
+      set({ error: "Failed to join session" });
+      return false;
+    }
+  },
+
+  leaveSession: async (groupId) => {
+    try {
+      const { userData } = useAuthStore.getState();
+      if (!userData?.id_number) {
+        throw new Error("User not authenticated");
+      }
+
+      const response = await apiClient.post(`/api/study-groups/${groupId}/leave-session`, {
+        user_id: userData.id_number
+      });
+
+      if (response.data.success) {
+        // Remove group from local state if it was deleted
+        if (response.data.group_deleted) {
+          set((state) => ({
+            groups: state.groups.filter(group => group.id !== groupId)
+          }));
+        }
+        return response.data;
+      }
+      return null;
+    } catch (error) {
+      console.error("Leave session error:", error);
+      set({ error: "Failed to leave session" });
+      return null;
+    }
+  },
+
+  toggleFilterMode: () => {
+    set((state) => {
+      const newShowOnlyActive = !state.showOnlyActiveStudySessions;
+      // Automatically fetch the appropriate groups when toggling
+      get().fetchGroups(newShowOnlyActive);
+      return { showOnlyActiveStudySessions: newShowOnlyActive };
+    });
   },
 }));
 
