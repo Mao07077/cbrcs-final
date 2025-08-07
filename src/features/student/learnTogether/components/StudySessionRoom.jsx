@@ -126,12 +126,16 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
       try {
         // Just join the existing active session
         const { joinSession } = useLearnTogetherStore.getState();
-        await joinSession(sessionInfo.id);
+        await joinSession(sessionInfo.group.id);
 
         // Now establish WebSocket connection
         const baseUrl = import.meta.env.VITE_API_URL || "https://cbrcs-final.onrender.com";
         const wsBaseUrl = baseUrl.replace(/^http/, 'ws');
-        const wsUrl = `${wsBaseUrl}${sessionInfo.websocket_url}`;
+        // Remove leading slash from websocket_url to avoid double slash
+        const websocketPath = sessionInfo.websocket_url.startsWith('/') ? 
+          sessionInfo.websocket_url.substring(1) : 
+          sessionInfo.websocket_url;
+        const wsUrl = `${wsBaseUrl}/${websocketPath}`;
         
         console.log("Connecting to WebSocket:", wsUrl);
         const ws = new WebSocket(wsUrl);
@@ -554,8 +558,8 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
       }
 
       // Notify backend about leaving the session
-      if (sessionInfo?.id) {
-        const result = await leaveSession(sessionInfo.id);
+      if (sessionInfo?.group?.id) {
+        const result = await leaveSession(sessionInfo.group.id);
         if (result?.group_deleted) {
           setEndNotificationMessage("Study group has been automatically deleted since no participants remain.");
           setEndNotificationType("success");
