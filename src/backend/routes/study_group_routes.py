@@ -334,8 +334,24 @@ def get_active_study_sessions():
     """Get only active study sessions (live meetings)"""
     try:
         print("Fetching active study sessions...")  # Debug log
+        
+        # First, let's see all groups in the database
+        all_groups = list(study_groups_collection.find({}))
+        print(f"Total groups in database: {len(all_groups)}")  # Debug log
+        
+        for group in all_groups:
+            print(f"Group: {group.get('title', 'No title')} - is_session_active: {group.get('is_session_active')} - type: {type(group.get('is_session_active'))}")
+        
+        # Now find only active groups
         groups = list(study_groups_collection.find({"is_session_active": True}))
         print(f"Found {len(groups)} active groups")  # Debug log
+        
+        # Also try with different query variations
+        groups_alt1 = list(study_groups_collection.find({"is_session_active": {"$eq": True}}))
+        print(f"Alt query 1 found {len(groups_alt1)} groups")  # Debug log
+        
+        groups_alt2 = list(study_groups_collection.find({"is_session_active": {"$ne": False}}))
+        print(f"Alt query 2 found {len(groups_alt2)} groups")  # Debug log
         
         # Convert ObjectId to string and format data
         formatted_groups = []
@@ -350,4 +366,5 @@ def get_active_study_sessions():
             "groups": formatted_groups
         }
     except Exception as e:
+        print(f"Error in get_active_study_sessions: {str(e)}")  # Debug log
         raise HTTPException(status_code=500, detail=f"Failed to fetch active sessions: {str(e)}")
