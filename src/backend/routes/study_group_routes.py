@@ -312,13 +312,25 @@ def leave_study_session(group_id: str, data: dict = Body(...)):
         
         # Check if no participants are left
         updated_group = study_groups_collection.find_one({"_id": ObjectId(group_id)})
+        print(f"After removing user {user_id}, active participants: {updated_group.get('active_participants', [])}")  # Debug log
+        
         if updated_group and len(updated_group.get("active_participants", [])) == 0:
-            # If no participants left, end the session and delete the group
-            study_groups_collection.delete_one({"_id": ObjectId(group_id)})
+            # Instead of deleting immediately, just mark session as inactive
+            # This allows other users to still see and join the session
+            print(f"No participants left, but keeping session active for others to join")  # Debug log
+            study_groups_collection.update_one(
+                {"_id": ObjectId(group_id)},
+                {
+                    "$set": {
+                        "is_session_active": True,  # Keep it active
+                        "active_participants": []  # Empty but still active
+                    }
+                }
+            )
             return {
                 "success": True,
-                "message": "Left session and group deleted (no participants remaining)",
-                "group_deleted": True
+                "message": "Left session but keeping it active for others to join",
+                "group_deleted": False
             }
         
         return {
