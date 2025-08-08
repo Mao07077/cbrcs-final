@@ -6,6 +6,91 @@ from typing import List, Dict
 
 router = APIRouter()
 
+@router.get("/api/study-groups/active")
+def get_active_study_sessions():
+    """Get only active study sessions (live meetings)"""
+    try:
+        print("Fetching active study sessions...")  # Debug log
+        
+        # First, let's see all groups in the database
+        all_groups = list(study_groups_collection.find({}))
+        print(f"Total groups in database: {len(all_groups)}")  # Debug log
+        
+        for group in all_groups:
+            print(f"Group: {group.get('title', 'No title')} - is_session_active: {group.get('is_session_active')} - type: {type(group.get('is_session_active'))}")
+        
+        # Now find only active groups
+        groups = list(study_groups_collection.find({"is_session_active": True}))
+        print(f"Found {len(groups)} active groups")  # Debug log
+        
+        # Also try with different query variations
+        groups_alt1 = list(study_groups_collection.find({"is_session_active": {"$eq": True}}))
+        print(f"Alt query 1 found {len(groups_alt1)} groups")  # Debug log
+        
+        groups_alt2 = list(study_groups_collection.find({"is_session_active": {"$ne": False}}))
+        print(f"Alt query 2 found {len(groups_alt2)} groups")  # Debug log
+        
+        # Convert ObjectId to string and format data
+        formatted_groups = []
+        for group in groups:
+            group["id"] = str(group["_id"])
+            del group["_id"]
+            formatted_groups.append(group)
+            print(f"Active group: {group['title']} - ID: {group['id']}")  # Debug log
+        
+        return {
+            "success": True,
+            "groups": formatted_groups
+        }
+    except Exception as e:
+        print(f"Error in get_active_study_sessions: {str(e)}")  # Debug log
+        raise HTTPException(status_code=500, detail=f"Failed to fetch active sessions: {str(e)}")
+
+@router.get("/api/study-groups/debug")
+def debug_all_groups():
+    """Debug endpoint to see all groups in database"""
+    try:
+        all_groups = list(study_groups_collection.find({}))
+        formatted_groups = []
+        for group in all_groups:
+            # Keep the original _id for debugging
+            group_copy = group.copy()
+            group_copy["id"] = str(group_copy["_id"])
+            group_copy["_id"] = str(group_copy["_id"])  # Keep both for debugging
+            formatted_groups.append(group_copy)
+        
+        return {
+            "success": True,
+            "total_groups": len(formatted_groups),
+            "groups": formatted_groups,
+            "debug_info": {
+                "collection_name": study_groups_collection.name,
+                "database_name": study_groups_collection.database.name
+            }
+        }
+    except Exception as e:
+        return {"error": str(e), "error_type": type(e).__name__}
+
+@router.get("/api/study-groups")
+def get_all_study_groups():
+    """Get all available study groups"""
+    try:
+        groups = list(study_groups_collection.find({}))
+        
+        # Convert ObjectId to string and format data
+        formatted_groups = []
+        for group in groups:
+            group["id"] = str(group["_id"])
+            del group["_id"]
+            formatted_groups.append(group)
+        
+        return {
+            "success": True,
+            "groups": formatted_groups
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch study groups: {str(e)}")
+
 @router.get("/api/study-groups/{user_id}")
 def get_user_study_groups(user_id: str):
     """Get all study groups for a user"""
@@ -131,26 +216,6 @@ def leave_study_group(group_id: str, data: dict = Body(...)):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to leave study group: {str(e)}")
-
-@router.get("/api/study-groups")
-def get_all_study_groups():
-    """Get all available study groups"""
-    try:
-        groups = list(study_groups_collection.find({}))
-        
-        # Convert ObjectId to string and format data
-        formatted_groups = []
-        for group in groups:
-            group["id"] = str(group["_id"])
-            del group["_id"]
-            formatted_groups.append(group)
-        
-        return {
-            "success": True,
-            "groups": formatted_groups
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch study groups: {str(e)}")
 
 @router.get("/api/study-groups/{group_id}/session-info")
 def get_study_group_session_info(group_id: str):
@@ -340,71 +405,6 @@ def leave_study_session(group_id: str, data: dict = Body(...)):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to leave session: {str(e)}")
-
-@router.get("/api/study-groups/active")
-def get_active_study_sessions():
-    """Get only active study sessions (live meetings)"""
-    try:
-        print("Fetching active study sessions...")  # Debug log
-        
-        # First, let's see all groups in the database
-        all_groups = list(study_groups_collection.find({}))
-        print(f"Total groups in database: {len(all_groups)}")  # Debug log
-        
-        for group in all_groups:
-            print(f"Group: {group.get('title', 'No title')} - is_session_active: {group.get('is_session_active')} - type: {type(group.get('is_session_active'))}")
-        
-        # Now find only active groups
-        groups = list(study_groups_collection.find({"is_session_active": True}))
-        print(f"Found {len(groups)} active groups")  # Debug log
-        
-        # Also try with different query variations
-        groups_alt1 = list(study_groups_collection.find({"is_session_active": {"$eq": True}}))
-        print(f"Alt query 1 found {len(groups_alt1)} groups")  # Debug log
-        
-        groups_alt2 = list(study_groups_collection.find({"is_session_active": {"$ne": False}}))
-        print(f"Alt query 2 found {len(groups_alt2)} groups")  # Debug log
-        
-        # Convert ObjectId to string and format data
-        formatted_groups = []
-        for group in groups:
-            group["id"] = str(group["_id"])
-            del group["_id"]
-            formatted_groups.append(group)
-            print(f"Active group: {group['title']} - ID: {group['id']}")  # Debug log
-        
-        return {
-            "success": True,
-            "groups": formatted_groups
-        }
-    except Exception as e:
-        print(f"Error in get_active_study_sessions: {str(e)}")  # Debug log
-        raise HTTPException(status_code=500, detail=f"Failed to fetch active sessions: {str(e)}")
-
-@router.get("/api/study-groups/debug")
-def debug_all_groups():
-    """Debug endpoint to see all groups in database"""
-    try:
-        all_groups = list(study_groups_collection.find({}))
-        formatted_groups = []
-        for group in all_groups:
-            # Keep the original _id for debugging
-            group_copy = group.copy()
-            group_copy["id"] = str(group_copy["_id"])
-            group_copy["_id"] = str(group_copy["_id"])  # Keep both for debugging
-            formatted_groups.append(group_copy)
-        
-        return {
-            "success": True,
-            "total_groups": len(formatted_groups),
-            "groups": formatted_groups,
-            "debug_info": {
-                "collection_name": study_groups_collection.name,
-                "database_name": study_groups_collection.database.name
-            }
-        }
-    except Exception as e:
-        return {"error": str(e), "error_type": type(e).__name__}
 
 @router.post("/api/study-groups/test-create")
 def test_create_group():
