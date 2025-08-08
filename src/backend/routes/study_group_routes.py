@@ -380,3 +380,22 @@ def get_active_study_sessions():
     except Exception as e:
         print(f"Error in get_active_study_sessions: {str(e)}")  # Debug log
         raise HTTPException(status_code=500, detail=f"Failed to fetch active sessions: {str(e)}")
+
+@router.get("/api/study-groups/debug")
+def debug_all_groups():
+    """Debug endpoint to see all groups in database"""
+    try:
+        all_groups = list(study_groups_collection.find({}))
+        formatted_groups = []
+        for group in all_groups:
+            group["id"] = str(group["_id"])
+            del group["_id"]
+            formatted_groups.append(group)
+        
+        return {
+            "success": True,
+            "total_groups": len(formatted_groups),
+            "groups": formatted_groups
+        }
+    except Exception as e:
+        return {"error": str(e)}
