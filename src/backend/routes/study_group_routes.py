@@ -388,14 +388,63 @@ def debug_all_groups():
         all_groups = list(study_groups_collection.find({}))
         formatted_groups = []
         for group in all_groups:
-            group["id"] = str(group["_id"])
-            del group["_id"]
-            formatted_groups.append(group)
+            # Keep the original _id for debugging
+            group_copy = group.copy()
+            group_copy["id"] = str(group_copy["_id"])
+            group_copy["_id"] = str(group_copy["_id"])  # Keep both for debugging
+            formatted_groups.append(group_copy)
         
         return {
             "success": True,
             "total_groups": len(formatted_groups),
-            "groups": formatted_groups
+            "groups": formatted_groups,
+            "debug_info": {
+                "collection_name": study_groups_collection.name,
+                "database_name": study_groups_collection.database.name
+            }
         }
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": str(e), "error_type": type(e).__name__}
+
+@router.post("/api/study-groups/test-create")
+def test_create_group():
+    """Test endpoint to create a simple group and immediately check if it exists"""
+    try:
+        # Create a simple test group
+        test_group = {
+            "title": "TEST GROUP",
+            "subject": "TEST",
+            "schedule": "NOW",
+            "creator_id": "TEST_USER",
+            "members": ["TEST_USER"],
+            "created_at": datetime.utcnow(),
+            "max_members": 10,
+            "is_session_active": True,
+            "session_started_at": datetime.utcnow(),
+            "active_participants": ["TEST_USER"]
+        }
+        
+        # Insert the group
+        result = study_groups_collection.insert_one(test_group)
+        print(f"Test group inserted with ID: {result.inserted_id}")
+        
+        # Immediately try to find it
+        found_group = study_groups_collection.find_one({"_id": result.inserted_id})
+        print(f"Found group: {found_group}")
+        
+        # Try to find it with active query
+        active_groups = list(study_groups_collection.find({"is_session_active": True}))
+        print(f"Active groups found: {len(active_groups)}")
+        
+        # Clean up - delete the test group
+        study_groups_collection.delete_one({"_id": result.inserted_id})
+        
+        return {
+            "success": True,
+            "inserted_id": str(result.inserted_id),
+            "found_group": bool(found_group),
+            "active_groups_count": len(active_groups),
+            "test_completed": True
+        }
+    except Exception as e:
+        return {"error": str(e), "error_type": type(e).__name__}
