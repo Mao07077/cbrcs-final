@@ -410,6 +410,10 @@ def debug_all_groups():
 def test_create_group():
     """Test endpoint to create a simple group and immediately check if it exists"""
     try:
+        # First check what's in the database before creating
+        before_groups = list(study_groups_collection.find({}))
+        before_active = list(study_groups_collection.find({"is_session_active": True}))
+        
         # Create a simple test group
         test_group = {
             "title": "TEST GROUP",
@@ -428,23 +432,45 @@ def test_create_group():
         result = study_groups_collection.insert_one(test_group)
         print(f"Test group inserted with ID: {result.inserted_id}")
         
-        # Immediately try to find it
+        # Immediately check what's in the database after creating
+        after_groups = list(study_groups_collection.find({}))
+        after_active = list(study_groups_collection.find({"is_session_active": True}))
+        
+        # Try to find our specific group
         found_group = study_groups_collection.find_one({"_id": result.inserted_id})
         print(f"Found group: {found_group}")
         
-        # Try to find it with active query
-        active_groups = list(study_groups_collection.find({"is_session_active": True}))
-        print(f"Active groups found: {len(active_groups)}")
-        
         # Clean up - delete the test group
-        study_groups_collection.delete_one({"_id": result.inserted_id})
+        delete_result = study_groups_collection.delete_one({"_id": result.inserted_id})
+        print(f"Delete result: {delete_result.deleted_count}")
+        
+        # Check after cleanup
+        final_groups = list(study_groups_collection.find({}))
+        final_active = list(study_groups_collection.find({"is_session_active": True}))
         
         return {
             "success": True,
-            "inserted_id": str(result.inserted_id),
-            "found_group": bool(found_group),
-            "active_groups_count": len(active_groups),
-            "test_completed": True
+            "database_info": {
+                "collection_name": study_groups_collection.name,
+                "database_name": study_groups_collection.database.name
+            },
+            "before_create": {
+                "total_groups": len(before_groups),
+                "active_groups": len(before_active)
+            },
+            "after_create": {
+                "total_groups": len(after_groups),
+                "active_groups": len(after_active)
+            },
+            "after_delete": {
+                "total_groups": len(final_groups), 
+                "active_groups": len(final_active)
+            },
+            "test_group": {
+                "inserted_id": str(result.inserted_id),
+                "found_group": bool(found_group),
+                "deleted_count": delete_result.deleted_count
+            }
         }
     except Exception as e:
         return {"error": str(e), "error_type": type(e).__name__}
