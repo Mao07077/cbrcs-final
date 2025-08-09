@@ -63,6 +63,7 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
   // Refs
   const localVideoRef = useRef(null);
   const localStreamRef = useRef(null);
+  const socketRef = useRef(null);
   // Add refs for ICE candidate queuing
   const pendingIceCandidates = useRef(new Map()); // participantId -> array of candidates
   const chatContainerRef = useRef(null);
