@@ -63,7 +63,8 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
   // Refs
   const localVideoRef = useRef(null);
   const localStreamRef = useRef(null);
-  const socketRef = useRef(null);
+  // Add refs for ICE candidate queuing
+  const pendingIceCandidates = useRef(new Map()); // participantId -> array of candidates
   const chatContainerRef = useRef(null);
   const peerConnectionsRef = useRef(new Map()); // Store peer connections
   const remoteVideosRef = useRef(new Map()); // Store remote video refs
@@ -376,6 +377,7 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
           peerConnectionsRef.current.delete(participantId);
         }
         remoteVideosRef.current.delete(participantId);
+        pendingIceCandidates.current.delete(participantId); // Clean up queued ICE candidates
       }
     }
   }, [participants, userId, createPeerConnection]);
@@ -391,11 +393,28 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
           peerConnection = createPeerConnection(from_participant_id);
         }
 
+        // Reset connection if it's in failed state
+        if (peerConnection.connectionState === 'failed') {
+          peerConnection.close();
+          peerConnection = createPeerConnection(from_participant_id);
+        }
+
         // Check the signaling state before setting remote description
-        if (peerConnection.signalingState === 'stable' || peerConnection.signalingState === 'have-local-offer') {
+        if (peerConnection.signalingState === 'stable') {
           await peerConnection.setRemoteDescription(signalData.offer);
           const answer = await peerConnection.createAnswer();
           await peerConnection.setLocalDescription(answer);
+
+          // Process any queued ICE candidates
+          const queuedCandidates = pendingIceCandidates.current.get(from_participant_id) || [];
+          for (const candidate of queuedCandidates) {
+            try {
+              await peerConnection.addIceCandidate(candidate);
+            } catch (candidateError) {
+              console.warn('Failed to add queued ICE candidate:', candidateError);
+            }
+          }
+          pendingIceCandidates.current.delete(from_participant_id);
 
           if (socketRef.current?.readyState === WebSocket.OPEN) {
             socketRef.current.send(JSON.stringify({
@@ -411,6 +430,17 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         // Check the signaling state before setting remote description
         if (peerConnection.signalingState === 'have-local-offer') {
           await peerConnection.setRemoteDescription(signalData.answer);
+          
+          // Process any queued ICE candidates
+          const queuedCandidates = pendingIceCandidates.current.get(from_participant_id) || [];
+          for (const candidate of queuedCandidates) {
+            try {
+              await peerConnection.addIceCandidate(candidate);
+            } catch (candidateError) {
+              console.warn('Failed to add queued ICE candidate:', candidateError);
+            }
+          }
+          pendingIceCandidates.current.delete(from_participant_id);
         } else {
           console.warn(`Cannot set remote answer in signaling state: ${peerConnection.signalingState}`);
         }
@@ -419,7 +449,12 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         if (peerConnection.remoteDescription) {
           await peerConnection.addIceCandidate(signalData.candidate);
         } else {
-          console.warn('Received ICE candidate before remote description');
+          // Queue the ICE candidate for later
+          if (!pendingIceCandidates.current.has(from_participant_id)) {
+            pendingIceCandidates.current.set(from_participant_id, []);
+          }
+          pendingIceCandidates.current.get(from_participant_id).push(signalData.candidate);
+          console.log(`Queued ICE candidate for ${from_participant_id} (total: ${pendingIceCandidates.current.get(from_participant_id).length})`);
         }
       }
     } catch (error) {
