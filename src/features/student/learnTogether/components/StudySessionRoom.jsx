@@ -87,6 +87,7 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         }
         
         console.log("Media permissions granted");
+        console.log("Initial stream - Audio tracks:", stream.getAudioTracks().length, "Video tracks:", stream.getVideoTracks().length);
         setMediaError(null);
       } catch (error) {
         console.error("Failed to get media permissions:", error);
@@ -96,6 +97,23 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
 
     initializeMedia();
   }, []);
+
+  // Sync UI state with actual media tracks
+  useEffect(() => {
+    const syncMediaState = () => {
+      if (localStreamRef.current) {
+        const audioTrack = localStreamRef.current.getAudioTracks()[0];
+        const videoTrack = localStreamRef.current.getVideoTracks()[0];
+        
+        // Log the actual state of media tracks
+        console.log("Media state sync - Audio:", audioTrack?.enabled, "Video:", !!videoTrack);
+        console.log("UI state - Muted:", isMuted, "Camera off:", isCameraOff);
+      }
+    };
+
+    // Sync state every time media controls change
+    syncMediaState();
+  }, [isMuted, isCameraOff]);
 
   // WebSocket connection setup
   useEffect(() => {
@@ -416,11 +434,14 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
     try {
       if (!isMuted) {
         // Turn microphone on
+        console.log("Turning microphone on...");
         if (!localStreamRef.current || !localStreamRef.current.getAudioTracks().length) {
           const stream = await navigator.mediaDevices.getUserMedia({ 
             audio: true, 
             video: !isCameraOff 
           });
+          
+          console.log("Got audio stream:", stream.getAudioTracks().length > 0);
           
           if (localStreamRef.current) {
             // Replace existing stream
@@ -444,18 +465,23 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
           const audioTrack = localStreamRef.current.getAudioTracks()[0];
           if (audioTrack) {
             audioTrack.enabled = true;
+            console.log("Enabled existing audio track");
           }
         }
         setIsMuted(false);
+        console.log("Microphone turned on successfully");
       } else {
         // Turn microphone off
+        console.log("Turning microphone off...");
         if (localStreamRef.current) {
           const audioTrack = localStreamRef.current.getAudioTracks()[0];
           if (audioTrack) {
             audioTrack.enabled = false;
+            console.log("Disabled audio track");
           }
         }
         setIsMuted(true);
+        console.log("Microphone turned off successfully");
       }
       
       // Send status update to other participants
@@ -479,10 +505,13 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
     try {
       if (isCameraOff) {
         // Turn camera on
+        console.log("Turning camera on...");
         const stream = await navigator.mediaDevices.getUserMedia({ 
           video: true, 
           audio: !isMuted 
         });
+        
+        console.log("Got video stream:", stream.getVideoTracks().length > 0);
         
         if (localStreamRef.current) {
           // Stop existing tracks
@@ -492,6 +521,14 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         localStreamRef.current = stream;
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
+          console.log("Set local video srcObject");
+          
+          // Force the video to play
+          try {
+            await localVideoRef.current.play();
+          } catch (playError) {
+            console.log("Video play promise rejected (this is normal):", playError);
+          }
         }
 
         // Update all peer connections with new stream
@@ -512,8 +549,10 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         });
         
         setIsCameraOff(false);
+        console.log("Camera turned on successfully");
       } else {
         // Turn camera off
+        console.log("Turning camera off...");
         if (localStreamRef.current) {
           const videoTracks = localStreamRef.current.getVideoTracks();
           videoTracks.forEach(track => {
@@ -534,6 +573,7 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
           localVideoRef.current.srcObject = null;
         }
         setIsCameraOff(true);
+        console.log("Camera turned off successfully");
       }
       
       // Send status update to other participants
