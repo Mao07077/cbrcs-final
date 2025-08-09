@@ -432,9 +432,9 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
     const newMutedState = !isMuted;
     
     try {
-      if (!isMuted) {
-        // Turn microphone on
-        console.log("Turning microphone on...");
+      if (isMuted) {
+        // Turn microphone on (unmute)
+        console.log("Turning microphone on (unmuting)...");
         if (!localStreamRef.current || !localStreamRef.current.getAudioTracks().length) {
           const stream = await navigator.mediaDevices.getUserMedia({ 
             audio: true, 
@@ -459,6 +459,9 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
             const audioSender = senders.find(sender => sender.track?.kind === 'audio');
             if (audioSender) {
               await audioSender.replaceTrack(stream.getAudioTracks()[0]);
+            } else {
+              // Add audio track if it doesn't exist
+              peerConnection.addTrack(stream.getAudioTracks()[0], stream);
             }
           });
         } else {
@@ -469,10 +472,10 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
           }
         }
         setIsMuted(false);
-        console.log("Microphone turned on successfully");
+        console.log("Microphone turned on (unmuted) successfully");
       } else {
-        // Turn microphone off
-        console.log("Turning microphone off...");
+        // Turn microphone off (mute)
+        console.log("Turning microphone off (muting)...");
         if (localStreamRef.current) {
           const audioTrack = localStreamRef.current.getAudioTracks()[0];
           if (audioTrack) {
@@ -481,7 +484,7 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
           }
         }
         setIsMuted(true);
-        console.log("Microphone turned off successfully");
+        console.log("Microphone turned off (muted) successfully");
       }
       
       // Send status update to other participants
@@ -508,10 +511,18 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         console.log("Turning camera on...");
         const stream = await navigator.mediaDevices.getUserMedia({ 
           video: true, 
-          audio: !isMuted 
+          audio: true  // Always request audio to preserve the track
         });
         
         console.log("Got video stream:", stream.getVideoTracks().length > 0);
+        console.log("Got audio stream:", stream.getAudioTracks().length > 0);
+        
+        // Set audio track to match current mute state
+        const audioTrack = stream.getAudioTracks()[0];
+        if (audioTrack) {
+          audioTrack.enabled = !isMuted; // Enable based on current mute state
+          console.log("Set audio track enabled to:", !isMuted);
+        }
         
         if (localStreamRef.current) {
           // Stop existing tracks
@@ -543,8 +554,12 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
           }
           
           const audioSender = senders.find(sender => sender.track?.kind === 'audio');
-          if (audioSender && !isMuted) {
+          if (audioSender) {
+            // Always replace audio track to maintain the connection
             await audioSender.replaceTrack(stream.getAudioTracks()[0]);
+          } else {
+            // Add audio track if it doesn't exist
+            peerConnection.addTrack(stream.getAudioTracks()[0], stream);
           }
         });
         
