@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import useLearnTogetherStore from "../../../../store/student/learnTogetherStore";
 import SessionEndNotification from "../../../../components/common/SessionEndNotification";
+import apiClient from "../../../../api/axios";
 
 const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => {
   const { leaveSession } = useLearnTogetherStore();
@@ -71,14 +72,19 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
   useEffect(() => {
     const initializeMedia = async () => {
       try {
-        // Start with audio and video off, but get permission
+        // Start with audio enabled but muted, video disabled
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: false,
-          audio: false
+          video: false,  // Start with camera off
+          audio: true    // Get audio permission but we'll mute it
         });
         
-        // Stop the tracks immediately since we start muted/camera off
-        stream.getTracks().forEach(track => track.stop());
+        localStreamRef.current = stream;
+        
+        // Mute audio by default
+        const audioTrack = stream.getAudioTracks()[0];
+        if (audioTrack) {
+          audioTrack.enabled = false; // Muted by default
+        }
         
         console.log("Media permissions granted");
         setMediaError(null);
@@ -90,33 +96,6 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
 
     initializeMedia();
   }, []);
-
-  // Initialize media when component loads
-  useEffect(() => {
-    const initializeMedia = async () => {
-      try {
-        // Start with audio only initially 
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: false, // Start with camera off
-          audio: true   // Start with mic muted but available
-        });
-        
-        localStreamRef.current = stream;
-        
-        // Mute audio by default
-        const audioTrack = stream.getAudioTracks()[0];
-        if (audioTrack) {
-          audioTrack.enabled = false; // Muted by default
-        }
-        
-      } catch (error) {
-        console.error("Failed to initialize media:", error);
-        // Continue without media if permission denied
-      }
-    };
-
-    initializeMedia();
-  }, []); // Run once on mount
 
   // WebSocket connection setup
   useEffect(() => {
@@ -207,18 +186,12 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
 
     const updateActivity = async () => {
       try {
-        const response = await fetch('/api/study-groups/update-activity', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            group_id: sessionInfo.group.id
-          })
+        const response = await apiClient.post('/api/study-groups/update-activity', {
+          group_id: sessionInfo.group.id
         });
         
-        if (!response.ok) {
-          console.warn('Failed to update activity:', response.status);
+        if (!response.data.success) {
+          console.warn('Failed to update activity:', response.data);
         }
       } catch (error) {
         console.warn('Error updating activity:', error);
