@@ -109,6 +109,14 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         // Log the actual state of media tracks
         console.log("Media state sync - Audio:", audioTrack?.enabled, "Video:", !!videoTrack);
         console.log("UI state - Muted:", isMuted, "Camera off:", isCameraOff);
+        
+        // Debug video element state
+        if (localVideoRef.current) {
+          console.log("Video element srcObject:", !!localVideoRef.current.srcObject);
+          console.log("Video element readyState:", localVideoRef.current.readyState);
+          console.log("Video element paused:", localVideoRef.current.paused);
+          console.log("Video element dimensions:", localVideoRef.current.videoWidth, "x", localVideoRef.current.videoHeight);
+        }
       }
     };
 
@@ -568,13 +576,33 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
           console.log("Set local video srcObject");
+          console.log("Video element:", localVideoRef.current);
+          console.log("Video srcObject:", localVideoRef.current.srcObject);
+          console.log("Video readyState:", localVideoRef.current.readyState);
+          console.log("Video paused:", localVideoRef.current.paused);
           
           // Force the video to play
           try {
             await localVideoRef.current.play();
+            console.log("Video play started successfully");
           } catch (playError) {
             console.log("Video play promise rejected (this is normal):", playError);
           }
+
+          // Add event listeners to debug video state
+          localVideoRef.current.onloadedmetadata = () => {
+            console.log("Video metadata loaded - dimensions:", localVideoRef.current.videoWidth, "x", localVideoRef.current.videoHeight);
+          };
+          
+          localVideoRef.current.oncanplay = () => {
+            console.log("Video can play");
+          };
+          
+          localVideoRef.current.onplaying = () => {
+            console.log("Video is playing");
+          };
+        } else {
+          console.error("Local video ref is null!");
         }
 
         // Update all peer connections with new stream
@@ -949,7 +977,7 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         <div className="flex-1 p-4">
           {/* Local video preview */}
           <div className="mb-4">
-            <h3 className="text-white mb-2 font-semibold">You</h3>
+            <h3 className="text-white mb-2 font-semibold">You (Camera: {isCameraOff ? 'OFF' : 'ON'})</h3>
             <div className="relative bg-gray-800 rounded-lg overflow-hidden" style={{ aspectRatio: '16/9', maxWidth: '300px' }}>
               {!isCameraOff ? (
                 <video
@@ -958,6 +986,11 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
                   muted
                   playsInline
                   className="w-full h-full object-cover"
+                  style={{ 
+                    display: 'block',
+                    minHeight: '200px',
+                    backgroundColor: 'red' // Temporary: to see if element is there
+                  }}
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-white bg-gray-700">
