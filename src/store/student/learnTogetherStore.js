@@ -229,6 +229,19 @@ const useLearnTogetherStore = create((set, get) => ({
     }
   },
 
+  verifyGroupPassword: async (groupId, password) => {
+    try {
+      const response = await apiClient.post(`/api/study-groups/${groupId}/verify-password`, {
+        password: password
+      });
+
+      return response.data.success;
+    } catch (error) {
+      console.error("Password verification error:", error);
+      return false;
+    }
+  },
+
   toggleFilterMode: () => {
     set((state) => {
       const newShowOnlyActive = !state.showOnlyActiveStudySessions;

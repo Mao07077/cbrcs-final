@@ -8,6 +8,8 @@ const CreateGroupModal = () => {
   const [title, setTitle] = useState("");
   const [subject, setSubject] = useState("");
   const [schedule, setSchedule] = useState("");
+  const [password, setPassword] = useState("");
+  const [requirePassword, setRequirePassword] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
 
   if (!isModalOpen) return null;
@@ -18,7 +20,12 @@ const CreateGroupModal = () => {
     
     try {
       // Create the group (it will automatically start as a live session)
-      const group = await addGroup({ title, subject, schedule });
+      const groupData = { title, subject, schedule };
+      if (requirePassword && password.trim()) {
+        groupData.password = password.trim();
+      }
+      
+      const group = await addGroup(groupData);
       
       if (group && group.id) {
         // Navigate directly to the live session (no need to call startSession)
@@ -30,6 +37,8 @@ const CreateGroupModal = () => {
       setTitle("");
       setSubject("");
       setSchedule("");
+      setPassword("");
+      setRequirePassword(false);
     } catch (error) {
       console.error("Failed to create live session:", error);
     } finally {
@@ -80,6 +89,28 @@ const CreateGroupModal = () => {
               placeholder="e.g., Chapter 5 - Derivatives"
               required
             />
+          </div>
+          
+          <div className="mb-4">
+            <label className="flex items-center text-gray-700 font-bold mb-2">
+              <input
+                type="checkbox"
+                checked={requirePassword}
+                onChange={(e) => setRequirePassword(e.target.checked)}
+                className="mr-2"
+              />
+              Password protect this session
+            </label>
+            {requirePassword && (
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full p-2 border rounded mt-2"
+                placeholder="Enter a password for your session"
+                required={requirePassword}
+              />
+            )}
           </div>
           <div className="flex justify-end space-x-4 mt-6">
             <button

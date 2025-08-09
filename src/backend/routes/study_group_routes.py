@@ -128,13 +128,16 @@ def create_study_group(data: dict = Body(...)):
             "title": data.get("title", ""),
             "subject": data.get("subject", ""),
             "schedule": data.get("schedule", ""),
+            "password": data.get("password", ""),  # Add password field
             "creator_id": creator_id,
             "members": [creator_id],
             "created_at": datetime.utcnow(),
             "max_members": data.get("max_members", 10),
             "is_session_active": True,  # Start as active session immediately
             "session_started_at": datetime.utcnow(),
-            "active_participants": [creator_id]  # Creator is first active participant
+            "active_participants": [creator_id],  # Creator is first active participant
+            "last_activity": datetime.utcnow(),  # Track activity for auto-cleanup
+            "auto_delete_minutes": 5  # Auto-delete after 5 minutes of inactivity
         }
         
         print(f"Group data to insert: {group_data}")  # Debug log
@@ -330,6 +333,42 @@ def end_study_session(group_id: str, data: dict = Body(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to end session: {str(e)}")
 
+@router.post("/api/study-groups/{group_id}/verify-password")
+def verify_group_password(group_id: str, data: dict = Body(...)):
+    """Verify password for joining a study group"""
+    try:
+        password = data.get("password", "")
+        
+        # Check if group exists
+        group = study_groups_collection.find_one({"_id": ObjectId(group_id)})
+        if not group:
+            raise HTTPException(status_code=404, detail="Study group not found")
+        
+        # Check if session is active
+        if not group.get("is_session_active", False):
+            raise HTTPException(status_code=400, detail="Study session is not active")
+        
+        # Verify password (empty password means no password required)
+        group_password = group.get("password", "")
+        if group_password and group_password != password:
+            raise HTTPException(status_code=403, detail="Incorrect password")
+        
+        return {
+            "success": True,
+            "message": "Password verified successfully",
+            "group": {
+                "id": str(group["_id"]),
+                "title": group.get("title", ""),
+                "subject": group.get("subject", ""),
+                "creator_id": group.get("creator_id", ""),
+                "active_participants": len(group.get("active_participants", []))
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to verify password: {str(e)}")
+
 @router.post("/api/study-groups/{group_id}/join-session")
 def join_study_session(group_id: str, data: dict = Body(...)):
     """Join an active study session"""
@@ -471,6 +510,65 @@ def test_create_group():
                 "found_group": bool(found_group),
                 "deleted_count": delete_result.deleted_count
             }
+        }
+    except Exception as e:
+        return {"error": str(e), "error_type": type(e).__name__}
+
+@router.post("/api/study-groups/cleanup-inactive")
+def cleanup_inactive_groups():
+    """Clean up groups that have been inactive for more than 5 minutes"""
+    try:
+        from datetime import timedelta
+        
+        # Find groups that are older than 5 minutes with no active participants
+        cutoff_time = datetime.utcnow() - timedelta(minutes=5)
+        
+        inactive_groups = study_groups_collection.find({
+            "is_session_active": True,
+            "last_activity": {"$lt": cutoff_time},
+            "$or": [
+                {"active_participants": {"$size": 0}},
+                {"active_participants": {"$exists": False}}
+            ]
+        })
+        
+        deleted_count = 0
+        for group in inactive_groups:
+            # Double check - make sure it's really been 5 minutes and no participants
+            if len(group.get("active_participants", [])) == 0:
+                result = study_groups_collection.delete_one({"_id": group["_id"]})
+                if result.deleted_count > 0:
+                    deleted_count += 1
+                    print(f"Auto-deleted inactive group: {group.get('title', 'Unknown')} - ID: {group['_id']}")
+        
+        return {
+            "success": True,
+            "deleted_count": deleted_count,
+            "message": f"Cleaned up {deleted_count} inactive groups"
+        }
+    except Exception as e:
+        return {"error": str(e), "error_type": type(e).__name__}
+
+@router.post("/api/study-groups/update-activity")
+def update_group_activity(data: dict = Body(...)):
+    """Update last activity timestamp for a group"""
+    try:
+        group_id = data.get("group_id")
+        if not group_id:
+            raise HTTPException(status_code=400, detail="Group ID is required")
+        
+        # Update the group's last activity time
+        result = study_groups_collection.update_one(
+            {"_id": ObjectId(group_id)},
+            {"$set": {"last_activity": datetime.utcnow()}}
+        )
+        
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Study group not found")
+        
+        return {
+            "success": True,
+            "message": "Activity updated successfully"
         }
     except Exception as e:
         return {"error": str(e), "error_type": type(e).__name__}

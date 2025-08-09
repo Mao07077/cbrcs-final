@@ -122,7 +122,7 @@ async def study_group_websocket(websocket: WebSocket, group_id: str):
         await websocket.close()
         return
     
-    # Verify user is member of the study group
+    # Verify study group exists (remove membership check for password-protected rooms)
     try:
         study_group = study_groups_collection.find_one({"_id": ObjectId(group_id)})
         if not study_group:
@@ -133,19 +133,15 @@ async def study_group_websocket(websocket: WebSocket, group_id: str):
             await websocket.close()
             return
         
-        if user_id not in study_group.get("members", []):
-            await websocket.send_text(json.dumps({
-                "type": "error", 
-                "message": "You are not a member of this study group"
-            }))
-            await websocket.close()
-            return
+        # For password-protected groups, anyone can join if they have the password
+        # The password check will be handled by the frontend before connecting
+        logger.info(f"User {user_id} connecting to study group {group_id}")
             
     except Exception as e:
-        logger.error(f"Database error verifying group membership: {e}")
+        logger.error(f"Database error verifying group: {e}")
         await websocket.send_text(json.dumps({
             "type": "error",
-            "message": "Failed to verify group membership"
+            "message": "Failed to verify study group"
         }))
         await websocket.close()
         return

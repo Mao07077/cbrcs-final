@@ -201,6 +201,41 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
     };
   }, [sessionInfo, userId, userName]);
 
+  // Activity updater to keep session alive
+  useEffect(() => {
+    if (!sessionInfo?.group?.id) return;
+
+    const updateActivity = async () => {
+      try {
+        const response = await fetch('/api/study-groups/update-activity', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            group_id: sessionInfo.group.id
+          })
+        });
+        
+        if (!response.ok) {
+          console.warn('Failed to update activity:', response.status);
+        }
+      } catch (error) {
+        console.warn('Error updating activity:', error);
+      }
+    };
+
+    // Update activity immediately
+    updateActivity();
+
+    // Set up interval to update every 2 minutes (keeps sessions alive)
+    const activityInterval = setInterval(updateActivity, 2 * 60 * 1000);
+
+    return () => {
+      clearInterval(activityInterval);
+    };
+  }, [sessionInfo?.group?.id]);
+
   // Handle WebSocket messages
   const handleWebSocketMessage = useCallback((data) => {
     switch (data.type) {

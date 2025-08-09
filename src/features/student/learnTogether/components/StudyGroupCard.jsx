@@ -1,10 +1,50 @@
-import React from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import useLearnTogetherStore from "../../../../store/student/learnTogetherStore";
 
 const StudyGroupCard = ({ group }) => {
   const navigate = useNavigate();
-  const { joinGroup, startSession, joinSession } = useLearnTogetherStore();
+  const { joinGroup, startSession, joinSession, verifyGroupPassword } = useLearnTogetherStore();
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [password, setPassword] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [isVerifyingPassword, setIsVerifyingPassword] = useState(false);
+
+  const handlePasswordVerification = async () => {
+    if (!password.trim()) {
+      setPasswordError("Password is required");
+      return;
+    }
+
+    setIsVerifyingPassword(true);
+    setPasswordError("");
+
+    try {
+      const success = await verifyGroupPassword(group.id, password);
+      if (success) {
+        setShowPasswordModal(false);
+        setPassword("");
+        // Navigate to the study session
+        navigate(`/student/study-session/${group.id}`);
+      } else {
+        setPasswordError("Incorrect password");
+      }
+    } catch (error) {
+      console.error("Password verification failed:", error);
+      setPasswordError("Failed to verify password");
+    } finally {
+      setIsVerifyingPassword(false);
+    }
+  };
+
+  const handleJoinSessionClick = () => {
+    // Check if group has password protection
+    if (group.password) {
+      setShowPasswordModal(true);
+    } else {
+      handleJoinSession();
+    }
+  };
 
   const handleJoinGroup = async () => {
     try {
@@ -87,12 +127,62 @@ const StudyGroupCard = ({ group }) => {
       </div>
       
       <button 
-        onClick={handleJoinSession}
+        onClick={handleJoinSessionClick}
         className="w-full px-4 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
       >
         <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
         Join Live Session
+        {group.password && <span className="text-xs">🔒</span>}
       </button>
+      
+      {/* Password Modal */}
+      {showPasswordModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
+            <h3 className="text-lg font-bold text-gray-800 mb-4">
+              Password Required
+            </h3>
+            <p className="text-gray-600 mb-4">
+              This study group requires a password to join.
+            </p>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setPasswordError("");
+              }}
+              onKeyPress={(e) => e.key === 'Enter' && handlePasswordVerification()}
+              placeholder="Enter group password"
+              className="w-full p-3 border border-gray-300 rounded-lg mb-4 focus:outline-none focus:border-green-500"
+              disabled={isVerifyingPassword}
+            />
+            {passwordError && (
+              <p className="text-red-500 text-sm mb-4">{passwordError}</p>
+            )}
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowPasswordModal(false);
+                  setPassword("");
+                  setPasswordError("");
+                }}
+                className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors"
+                disabled={isVerifyingPassword}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handlePasswordVerification}
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:bg-green-400"
+                disabled={isVerifyingPassword || !password.trim()}
+              >
+                {isVerifyingPassword ? "Verifying..." : "Join"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

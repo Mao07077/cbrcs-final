@@ -45,6 +45,41 @@ app.add_middleware(
 scheduler = BackgroundScheduler()
 scheduler.add_job(lambda: check_schedule_and_notify(users_collection, schedule_collection), 'interval', minutes=1)
 
+# Add cleanup job for inactive study groups (runs every 5 minutes)
+def cleanup_inactive_study_groups():
+    try:
+        from database import study_groups_collection
+        from datetime import datetime, timedelta
+        
+        # Find groups that are older than 5 minutes with no active participants
+        cutoff_time = datetime.utcnow() - timedelta(minutes=5)
+        
+        inactive_groups = study_groups_collection.find({
+            "is_session_active": True,
+            "last_activity": {"$lt": cutoff_time},
+            "$or": [
+                {"active_participants": {"$size": 0}},
+                {"active_participants": {"$exists": False}}
+            ]
+        })
+        
+        deleted_count = 0
+        for group in inactive_groups:
+            # Double check - make sure it's really been 5 minutes and no participants
+            if len(group.get("active_participants", [])) == 0:
+                result = study_groups_collection.delete_one({"_id": group["_id"]})
+                if result.deleted_count > 0:
+                    deleted_count += 1
+                    print(f"Auto-deleted inactive group: {group.get('title', 'Unknown')} - ID: {group['_id']}")
+        
+        if deleted_count > 0:
+            logger.info(f"Cleaned up {deleted_count} inactive study groups")
+            
+    except Exception as e:
+        logger.error(f"Error in cleanup job: {str(e)}")
+
+scheduler.add_job(cleanup_inactive_study_groups, 'interval', minutes=5)
+
 # Import and register routes
 from routes.auth_routes import router as auth_router
 from routes.profile_routes import router as profile_router
