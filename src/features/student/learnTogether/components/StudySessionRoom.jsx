@@ -338,6 +338,15 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
       }
     };
 
+    // Handle connection state changes
+    peerConnection.onconnectionstatechange = () => {
+      console.log(`Peer connection to ${participantId} state:`, peerConnection.connectionState);
+      if (peerConnection.connectionState === 'failed') {
+        console.log(`Attempting to restart ICE for ${participantId}`);
+        peerConnection.restartIce();
+      }
+    };
+
     peerConnectionsRef.current.set(participantId, peerConnection);
     return peerConnection;
   }, []);
@@ -391,21 +400,36 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
           peerConnection = createPeerConnection(from_participant_id);
         }
 
-        await peerConnection.setRemoteDescription(signalData.offer);
-        const answer = await peerConnection.createAnswer();
-        await peerConnection.setLocalDescription(answer);
+        // Check the signaling state before setting remote description
+        if (peerConnection.signalingState === 'stable' || peerConnection.signalingState === 'have-local-offer') {
+          await peerConnection.setRemoteDescription(signalData.offer);
+          const answer = await peerConnection.createAnswer();
+          await peerConnection.setLocalDescription(answer);
 
-        if (socketRef.current?.readyState === WebSocket.OPEN) {
-          socketRef.current.send(JSON.stringify({
-            type: "webrtc_answer",
-            target_participant_id: from_participant_id,
-            data: { answer }
-          }));
+          if (socketRef.current?.readyState === WebSocket.OPEN) {
+            socketRef.current.send(JSON.stringify({
+              type: "webrtc_answer",
+              target_participant_id: from_participant_id,
+              data: { answer }
+            }));
+          }
+        } else {
+          console.warn(`Cannot set remote offer in signaling state: ${peerConnection.signalingState}`);
         }
       } else if (type === "webrtc_answer" && peerConnection) {
-        await peerConnection.setRemoteDescription(signalData.answer);
+        // Check the signaling state before setting remote description
+        if (peerConnection.signalingState === 'have-local-offer') {
+          await peerConnection.setRemoteDescription(signalData.answer);
+        } else {
+          console.warn(`Cannot set remote answer in signaling state: ${peerConnection.signalingState}`);
+        }
       } else if (type === "webrtc_ice_candidate" && peerConnection) {
-        await peerConnection.addIceCandidate(signalData.candidate);
+        // Only add ICE candidates if we have a remote description
+        if (peerConnection.remoteDescription) {
+          await peerConnection.addIceCandidate(signalData.candidate);
+        } else {
+          console.warn('Received ICE candidate before remote description');
+        }
       }
     } catch (error) {
       console.error("WebRTC signaling error:", error);
@@ -414,8 +438,10 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
 
   // Media controls
   const toggleMute = useCallback(async () => {
+    const newMutedState = !isMuted;
+    
     try {
-      if (isMuted) {
+      if (!isMuted) {
         // Turn microphone on
         if (!localStreamRef.current || !localStreamRef.current.getAudioTracks().length) {
           const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -432,6 +458,15 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
           if (localVideoRef.current && !isCameraOff) {
             localVideoRef.current.srcObject = stream;
           }
+
+          // Update all peer connections with new stream
+          peerConnectionsRef.current.forEach(async (peerConnection, participantId) => {
+            const senders = peerConnection.getSenders();
+            const audioSender = senders.find(sender => sender.track?.kind === 'audio');
+            if (audioSender) {
+              await audioSender.replaceTrack(stream.getAudioTracks()[0]);
+            }
+          });
         } else {
           const audioTrack = localStreamRef.current.getAudioTracks()[0];
           if (audioTrack) {
@@ -450,11 +485,13 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         setIsMuted(true);
       }
       
-      // Send status update
+      // Send status update to other participants
       if (socketRef.current?.readyState === WebSocket.OPEN) {
         socketRef.current.send(JSON.stringify({
           type: "status_update",
-          muted: !isMuted
+          muted: newMutedState,
+          camera_off: isCameraOff,
+          is_screen_sharing: isScreenSharing
         }));
       }
     } catch (error) {
@@ -464,6 +501,8 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
   }, [isMuted, isCameraOff]);
 
   const toggleCamera = useCallback(async () => {
+    const newCameraState = !isCameraOff;
+    
     try {
       if (isCameraOff) {
         // Turn camera on
@@ -481,6 +520,24 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
         }
+
+        // Update all peer connections with new stream
+        peerConnectionsRef.current.forEach(async (peerConnection, participantId) => {
+          const senders = peerConnection.getSenders();
+          const videoSender = senders.find(sender => sender.track?.kind === 'video');
+          if (videoSender) {
+            await videoSender.replaceTrack(stream.getVideoTracks()[0]);
+          } else {
+            // Add video track if it doesn't exist
+            peerConnection.addTrack(stream.getVideoTracks()[0], stream);
+          }
+          
+          const audioSender = senders.find(sender => sender.track?.kind === 'audio');
+          if (audioSender && !isMuted) {
+            await audioSender.replaceTrack(stream.getAudioTracks()[0]);
+          }
+        });
+        
         setIsCameraOff(false);
       } else {
         // Turn camera off
@@ -488,7 +545,15 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
           const videoTracks = localStreamRef.current.getVideoTracks();
           videoTracks.forEach(track => {
             track.stop();
-            localStreamRef.current.removeTrack(track);
+          });
+
+          // Remove video tracks from peer connections
+          peerConnectionsRef.current.forEach(async (peerConnection, participantId) => {
+            const senders = peerConnection.getSenders();
+            const videoSender = senders.find(sender => sender.track?.kind === 'video');
+            if (videoSender) {
+              await videoSender.replaceTrack(null);
+            }
           });
         }
         
@@ -498,11 +563,13 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         setIsCameraOff(true);
       }
       
-      // Send status update
+      // Send status update to other participants
       if (socketRef.current?.readyState === WebSocket.OPEN) {
         socketRef.current.send(JSON.stringify({
           type: "status_update",
-          camera_off: isCameraOff
+          muted: isMuted,
+          camera_off: newCameraState,
+          is_screen_sharing: isScreenSharing
         }));
       }
       
@@ -517,17 +584,75 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
     try {
       if (!isScreenSharing) {
         // Start screen share
-        const stream = await navigator.mediaDevices.getDisplayMedia({ 
+        const screenStream = await navigator.mediaDevices.getDisplayMedia({ 
           video: true, 
           audio: true 
         });
         
+        // Replace video track in all peer connections with screen share
+        peerConnectionsRef.current.forEach(async (peerConnection, participantId) => {
+          const senders = peerConnection.getSenders();
+          const videoSender = senders.find(sender => sender.track?.kind === 'video');
+          if (videoSender) {
+            await videoSender.replaceTrack(screenStream.getVideoTracks()[0]);
+          } else {
+            peerConnection.addTrack(screenStream.getVideoTracks()[0], screenStream);
+          }
+        });
+
+        // Update local video to show screen share
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = screenStream;
+        }
+        
         // Handle when user stops screen share via browser controls
-        stream.getVideoTracks()[0].addEventListener('ended', () => {
+        screenStream.getVideoTracks()[0].addEventListener('ended', async () => {
           setIsScreenSharing(false);
+          
+          // Switch back to camera if it was on
+          if (!isCameraOff) {
+            try {
+              const cameraStream = await navigator.mediaDevices.getUserMedia({ 
+                video: true, 
+                audio: !isMuted 
+              });
+              
+              // Replace screen share with camera in peer connections
+              peerConnectionsRef.current.forEach(async (peerConnection, participantId) => {
+                const senders = peerConnection.getSenders();
+                const videoSender = senders.find(sender => sender.track?.kind === 'video');
+                if (videoSender) {
+                  await videoSender.replaceTrack(cameraStream.getVideoTracks()[0]);
+                }
+              });
+
+              if (localVideoRef.current) {
+                localVideoRef.current.srcObject = cameraStream;
+              }
+              localStreamRef.current = cameraStream;
+            } catch (error) {
+              console.error("Error switching back to camera:", error);
+            }
+          } else {
+            // Remove video track if camera was off
+            peerConnectionsRef.current.forEach(async (peerConnection, participantId) => {
+              const senders = peerConnection.getSenders();
+              const videoSender = senders.find(sender => sender.track?.kind === 'video');
+              if (videoSender) {
+                await videoSender.replaceTrack(null);
+              }
+            });
+            
+            if (localVideoRef.current) {
+              localVideoRef.current.srcObject = null;
+            }
+          }
+          
           if (socketRef.current?.readyState === WebSocket.OPEN) {
             socketRef.current.send(JSON.stringify({
               type: "status_update",
+              muted: isMuted,
+              camera_off: isCameraOff,
               is_screen_sharing: false
             }));
           }
@@ -535,7 +660,41 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         
         setIsScreenSharing(true);
       } else {
-        // Stop screen share
+        // Stop screen share - switch back to camera or turn off video
+        if (!isCameraOff) {
+          const cameraStream = await navigator.mediaDevices.getUserMedia({ 
+            video: true, 
+            audio: !isMuted 
+          });
+          
+          // Replace screen share with camera
+          peerConnectionsRef.current.forEach(async (peerConnection, participantId) => {
+            const senders = peerConnection.getSenders();
+            const videoSender = senders.find(sender => sender.track?.kind === 'video');
+            if (videoSender) {
+              await videoSender.replaceTrack(cameraStream.getVideoTracks()[0]);
+            }
+          });
+
+          if (localVideoRef.current) {
+            localVideoRef.current.srcObject = cameraStream;
+          }
+          localStreamRef.current = cameraStream;
+        } else {
+          // Remove video track
+          peerConnectionsRef.current.forEach(async (peerConnection, participantId) => {
+            const senders = peerConnection.getSenders();
+            const videoSender = senders.find(sender => sender.track?.kind === 'video');
+            if (videoSender) {
+              await videoSender.replaceTrack(null);
+            }
+          });
+          
+          if (localVideoRef.current) {
+            localVideoRef.current.srcObject = null;
+          }
+        }
+        
         setIsScreenSharing(false);
       }
       
@@ -543,13 +702,20 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
       if (socketRef.current?.readyState === WebSocket.OPEN) {
         socketRef.current.send(JSON.stringify({
           type: "status_update",
+          muted: isMuted,
+          camera_off: isCameraOff,
           is_screen_sharing: !isScreenSharing
         }));
       }
     } catch (error) {
       console.error("Screen share error:", error);
+      if (error.name === 'NotAllowedError') {
+        setMediaError("Screen sharing permission denied.");
+      } else {
+        setMediaError("Failed to start screen sharing.");
+      }
     }
-  }, [isScreenSharing]);
+  }, [isScreenSharing, isCameraOff, isMuted]);
 
   const toggleHandRaise = useCallback(() => {
     const newHandRaisedState = !handRaised;
