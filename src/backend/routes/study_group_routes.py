@@ -572,3 +572,25 @@ def update_group_activity(data: dict = Body(...)):
         }
     except Exception as e:
         return {"error": str(e), "error_type": type(e).__name__}
+
+@router.delete("/api/study-groups/delete-all")
+def delete_all_study_groups():
+    """Delete all study groups - WARNING: This will delete all meetings permanently"""
+    try:
+        # Get count before deletion for reporting
+        total_count = study_groups_collection.count_documents({})
+        
+        # Delete all documents in the collection
+        result = study_groups_collection.delete_many({})
+        
+        print(f"Deleted {result.deleted_count} study groups out of {total_count} total")
+        
+        return {
+            "success": True,
+            "message": f"Successfully deleted all {result.deleted_count} study groups",
+            "deleted_count": result.deleted_count,
+            "total_count": total_count
+        }
+    except Exception as e:
+        print(f"Error deleting all groups: {str(e)}")
+        return {"error": str(e), "error_type": type(e).__name__}
