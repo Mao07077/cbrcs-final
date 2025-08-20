@@ -3,7 +3,6 @@ import useDashboardStore from "../../store/student/dashboardStore";
 import RecommendedPages from "../../features/student/dashboard/components/RecommendedPage";
 import ModuleList from "../../features/student/dashboard/components/ModuleList";
 import ScoreOverview from "../../features/student/dashboard/components/ScoreOverview";
-import StatisticsOverview from "../../features/student/dashboard/components/StatisticsOverview";
 
 const DashboardPage = () => {
   const { fetchDashboardData, isLoading, error } = useDashboardStore();
@@ -33,11 +32,6 @@ const DashboardPage = () => {
       <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-6">
         Your Dashboard
       </h1>
-
-      {/* Enhanced Statistics Overview */}
-      <div className="mb-8">
-        <StatisticsOverview />
-      </div>
 
       <RecommendedPages />
 

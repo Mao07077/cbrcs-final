@@ -47,6 +47,7 @@ const AccountsManagementPage = () => {
         filters={filters}
         onFilterChange={handleFilterChange}
         selectedAccounts={selectedAccounts}
+        onGeneratePdf={() => alert("Generating PDF...")}
       />
 
       {error && <p className="text-red-500 bg-red-100 p-3 rounded-lg my-4">{error}</p>}
