@@ -21,7 +21,14 @@ const LearnTogetherPage = () => {
     fetchGroups(true); // true = activeOnly
   }, [fetchGroups]);
 
-  // Removed automatic refresh - users can manually refresh if needed
+  // Add automatic refresh every 10 seconds to update participant counts
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchGroups(true); // Refresh to get updated participant counts
+    }, 10000); // Refresh every 10 seconds
+
+    return () => clearInterval(interval);
+  }, [fetchGroups]);
 
   const handleRefresh = () => {
     fetchGroups(true); // Manual refresh for active sessions
@@ -89,7 +96,7 @@ const LearnTogetherPage = () => {
             onClick={handleRefresh}
             className="px-4 py-2 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-75 transition-colors"
           >
-            🔄 Refresh Sessions
+            🔄 Refresh Participants
           </button>
           <button
             onClick={handleCleanup}

@@ -81,7 +81,7 @@ const StudyGroupCard = ({ group }) => {
   };
 
   const isSessionActive = group.is_session_active;
-  const participantCount = group.active_participants?.length || 1; // Default to 1 since creator is always there
+  const participantCount = group.active_participants?.length || 0; // Show actual count, 0 if empty
 
   return (
     <div className="bg-white p-6 rounded-2xl shadow-lg hover:shadow-xl transition-shadow border-l-4 border-green-500">

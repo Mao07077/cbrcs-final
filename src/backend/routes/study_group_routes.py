@@ -33,10 +33,11 @@ def get_active_study_sessions():
         # Convert ObjectId to string and format data
         formatted_groups = []
         for group in groups:
+            participant_count = len(group.get("active_participants", []))
             group["id"] = str(group["_id"])
             del group["_id"]
             formatted_groups.append(group)
-            print(f"Active group: {group['title']} - ID: {group['id']}")  # Debug log
+            print(f"📊 Active group: {group['title']} - ID: {group['id']} - Participants: {participant_count} - List: {group.get('active_participants', [])}")  # Enhanced debug log
         
         return {
             "success": True,
