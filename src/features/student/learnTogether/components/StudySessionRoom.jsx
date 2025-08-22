@@ -481,7 +481,7 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
           peerConnection = createPeerConnection(from_participant_id);
         }
 
-        // Check the signaling state before setting remote description
+        // Handle different signaling states more gracefully
         if (peerConnection.signalingState === 'stable') {
           await peerConnection.setRemoteDescription(signalData.offer);
           const answer = await peerConnection.createAnswer();
@@ -505,8 +505,27 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
               data: { answer }
             }));
           }
+        } else if (peerConnection.signalingState === 'have-local-offer') {
+          // If we have a local offer, ignore this remote offer to avoid conflict
+          console.log(`Ignoring remote offer due to local offer in progress for participant ${from_participant_id}`);
         } else {
-          console.warn(`Cannot set remote offer in signaling state: ${peerConnection.signalingState}`);
+          console.warn(`Cannot set remote offer in signaling state: ${peerConnection.signalingState}. Resetting connection.`);
+          // Reset the connection to stable state
+          peerConnection.close();
+          peerConnection = createPeerConnection(from_participant_id);
+          
+          // Try again with the new connection
+          await peerConnection.setRemoteDescription(signalData.offer);
+          const answer = await peerConnection.createAnswer();
+          await peerConnection.setLocalDescription(answer);
+
+          if (socketRef.current?.readyState === WebSocket.OPEN) {
+            socketRef.current.send(JSON.stringify({
+              type: "webrtc_answer",
+              target_participant_id: from_participant_id,
+              data: { answer }
+            }));
+          }
         }
       } else if (type === "webrtc_answer" && peerConnection) {
         // Check the signaling state before setting remote description
@@ -770,42 +789,49 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         }
         
         localStreamRef.current = stream;
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = stream;
-          console.log("Set local video srcObject");
-          console.log("Video element:", localVideoRef.current);
-          console.log("Video srcObject:", localVideoRef.current.srcObject);
-          console.log("Video readyState:", localVideoRef.current.readyState);
-          console.log("Video paused:", localVideoRef.current.paused);
-          
-          // Force the video to play and ensure immediate visibility
-          try {
-            await localVideoRef.current.play();
-            console.log("Video play started successfully");
+        
+        // Wait for video ref to be available and set stream
+        const setVideoStream = () => {
+          if (localVideoRef.current) {
+            localVideoRef.current.srcObject = stream;
+            console.log("Set local video srcObject");
+            console.log("Video element:", localVideoRef.current);
+            console.log("Video srcObject:", localVideoRef.current.srcObject);
+            console.log("Video readyState:", localVideoRef.current.readyState);
+            console.log("Video paused:", localVideoRef.current.paused);
             
-            // Force a UI update to ensure the video is visible immediately
-            localVideoRef.current.style.display = 'block';
-            localVideoRef.current.style.opacity = '1';
-            
-          } catch (playError) {
-            console.log("Video play promise rejected (this is normal):", playError);
-          }
+            // Force the video to play and ensure immediate visibility
+            localVideoRef.current.play().then(() => {
+              console.log("Video play started successfully");
+              
+              // Force a UI update to ensure the video is visible immediately
+              localVideoRef.current.style.display = 'block';
+              localVideoRef.current.style.opacity = '1';
+              
+            }).catch((playError) => {
+              console.log("Video play promise rejected (this is normal):", playError);
+            });
 
-          // Add event listeners to debug video state
-          localVideoRef.current.onloadedmetadata = () => {
-            console.log("Video metadata loaded - dimensions:", localVideoRef.current.videoWidth, "x", localVideoRef.current.videoHeight);
-          };
-          
-          localVideoRef.current.oncanplay = () => {
-            console.log("Video can play");
-          };
-          
-          localVideoRef.current.onplaying = () => {
-            console.log("Video is playing");
-          };
-        } else {
-          console.error("Local video ref is null!");
-        }
+            // Add event listeners to debug video state
+            localVideoRef.current.onloadedmetadata = () => {
+              console.log("Video metadata loaded - dimensions:", localVideoRef.current.videoWidth, "x", localVideoRef.current.videoHeight);
+            };
+            
+            localVideoRef.current.oncanplay = () => {
+              console.log("Video can play");
+            };
+            
+            localVideoRef.current.onplaying = () => {
+              console.log("Video is playing");
+            };
+          } else {
+            console.error("Local video ref is null! Retrying in 100ms...");
+            // Retry after a short delay
+            setTimeout(setVideoStream, 100);
+          }
+        };
+        
+        setVideoStream();
 
         // Update all peer connections with new stream
         peerConnectionsRef.current.forEach(async (peerConnection, participantId) => {
