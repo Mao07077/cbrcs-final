@@ -10,11 +10,37 @@ import {
   Hand,
   Monitor,
   MonitorOff,
-  Settings
+  Settings,
+  Send,
+  Volume2
 } from "lucide-react";
 import useLearnTogetherStore from "../../../../store/student/learnTogetherStore";
 import SessionEndNotification from "../../../../components/common/SessionEndNotification";
 import apiClient from "../../../../api/axios";
+
+// Speaking Indicator Component
+const SpeakingIndicator = ({ isActive, audioLevel = 0 }) => {
+  const bars = [1, 2, 3, 4, 5];
+  
+  return (
+    <div className="flex items-center space-x-1">
+      {bars.map((bar) => (
+        <div
+          key={bar}
+          className={`w-1 bg-green-400 rounded-full transition-all duration-150 ${
+            isActive 
+              ? `h-${Math.min(6, Math.max(2, Math.floor(audioLevel / 20) + 2))} animate-pulse` 
+              : 'h-2 opacity-30'
+          }`}
+          style={{
+            animationDelay: `${bar * 0.1}s`,
+            height: isActive ? `${Math.min(24, Math.max(8, (audioLevel / 255) * 24 + bar * 2))}px` : '8px'
+          }}
+        />
+      ))}
+    </div>
+  );
+};
 
 const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => {
   const { leaveSession } = useLearnTogetherStore();
@@ -60,10 +86,17 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
   // UI state
   const [showSettings, setShowSettings] = useState(false);
   
+  // Speaking indicator state
+  const [speakingParticipants, setSpeakingParticipants] = useState(new Set());
+  const [localAudioLevel, setLocalAudioLevel] = useState(0);
+  
   // Refs
   const localVideoRef = useRef(null);
   const localStreamRef = useRef(null);
   const socketRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const analyserRef = useRef(null);
+  const animationFrameRef = useRef(null);
   // Add refs for ICE candidate queuing
   const pendingIceCandidates = useRef(new Map()); // participantId -> array of candidates
   const chatContainerRef = useRef(null);
@@ -87,6 +120,9 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         if (audioTrack) {
           audioTrack.enabled = false; // Muted by default
         }
+        
+        // Set up audio level monitoring for speaking indicator
+        setupAudioLevelMonitoring(stream);
         
         console.log("Media permissions granted");
         console.log("Initial stream - Audio tracks:", stream.getAudioTracks().length, "Video tracks:", stream.getVideoTracks().length);
@@ -205,6 +241,8 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
       if (socketRef.current?.readyState === WebSocket.OPEN) {
         socketRef.current.close();
       }
+      // Clean up audio monitoring
+      stopAudioLevelMonitoring();
     };
   }, [sessionInfo, userId, userName]);
 
@@ -304,6 +342,21 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         }));
         
         console.log(`Participant ${data.from_user_id} status: muted=${data.muted}, camera_off=${data.camera_off}, screen_sharing=${data.is_screen_sharing}`);
+        break;
+        
+      case "speaking_update":
+        // Handle speaking status updates
+        console.log("Speaking update received:", data);
+        
+        if (data.is_speaking) {
+          setSpeakingParticipants(prev => new Set([...prev, data.from_user_id]));
+        } else {
+          setSpeakingParticipants(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(data.from_user_id);
+            return newSet;
+          });
+        }
         break;
         
       case "webrtc_offer":
@@ -491,6 +544,91 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
     }
   }, [createPeerConnection]);
 
+  // Audio level monitoring for speaking indicator
+  const setupAudioLevelMonitoring = useCallback((stream) => {
+    try {
+      // Create audio context if it doesn't exist
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      
+      const audioContext = audioContextRef.current;
+      const source = audioContext.createMediaStreamSource(stream);
+      const analyser = audioContext.createAnalyser();
+      
+      analyser.fftSize = 256;
+      analyser.minDecibels = -90;
+      analyser.maxDecibels = -10;
+      analyser.smoothingTimeConstant = 0.85;
+      
+      source.connect(analyser);
+      analyserRef.current = analyser;
+      
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      
+      const checkAudioLevel = () => {
+        if (!analyserRef.current) return;
+        
+        analyser.getByteFrequencyData(dataArray);
+        
+        // Calculate average volume
+        const average = dataArray.reduce((sum, value) => sum + value, 0) / dataArray.length;
+        setLocalAudioLevel(average);
+        
+        // Determine if speaking (threshold can be adjusted)
+        const isSpeaking = average > 10 && !isMuted; // Only detect if not muted
+        
+        if (isSpeaking) {
+          setSpeakingParticipants(prev => new Set([...prev, userId]));
+          
+          // Send speaking status to other participants
+          if (socketRef.current?.readyState === WebSocket.OPEN) {
+            socketRef.current.send(JSON.stringify({
+              type: "speaking_update",
+              from_user_id: userId,
+              is_speaking: true
+            }));
+          }
+        } else {
+          setSpeakingParticipants(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(userId);
+            return newSet;
+          });
+          
+          // Send speaking status to other participants
+          if (socketRef.current?.readyState === WebSocket.OPEN) {
+            socketRef.current.send(JSON.stringify({
+              type: "speaking_update",
+              from_user_id: userId,
+              is_speaking: false
+            }));
+          }
+        }
+        
+        animationFrameRef.current = requestAnimationFrame(checkAudioLevel);
+      };
+      
+      checkAudioLevel();
+    } catch (error) {
+      console.error("Error setting up audio level monitoring:", error);
+    }
+  }, [userId, isMuted]);
+
+  // Clean up audio monitoring
+  const stopAudioLevelMonitoring = useCallback(() => {
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+    analyserRef.current = null;
+    setLocalAudioLevel(0);
+  }, []);
+
   // Media controls
   const toggleMute = useCallback(async () => {
     const newMutedState = !isMuted;
@@ -516,6 +654,9 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
           if (localVideoRef.current && !isCameraOff) {
             localVideoRef.current.srcObject = stream;
           }
+
+          // Set up audio level monitoring for the new stream
+          setupAudioLevelMonitoring(stream);
 
           // Update all peer connections with new stream
           peerConnectionsRef.current.forEach(async (peerConnection, participantId) => {
@@ -1219,11 +1360,10 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
                   autoPlay
                   muted
                   playsInline
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-cover bg-gray-800"
                   style={{ 
                     display: 'block',
-                    minHeight: '200px',
-                    backgroundColor: 'red' // Temporary: to see if element is there
+                    minHeight: '200px'
                   }}
                 />
               ) : (
@@ -1234,9 +1374,24 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
                   </div>
                 </div>
               )}
-              <div className="absolute bottom-2 left-2 bg-black bg-opacity-50 text-white px-2 py-1 rounded text-sm">
-                You {isMuted && <span className="text-red-400">(Muted)</span>}
-                {!isCameraOff && <span className="text-green-400 ml-1">(Camera On)</span>}
+              
+              {/* Speaking indicator overlay */}
+              {speakingParticipants.has(userId) && (
+                <div className="absolute top-2 right-2 bg-green-500 bg-opacity-90 text-white px-2 py-1 rounded text-xs flex items-center space-x-1">
+                  <Volume2 className="w-3 h-3" />
+                  <SpeakingIndicator isActive={true} audioLevel={localAudioLevel} />
+                </div>
+              )}
+              
+              <div className="absolute bottom-2 left-2 bg-black bg-opacity-50 text-white px-2 py-1 rounded text-sm flex items-center space-x-2">
+                <span>You {isMuted && <span className="text-red-400">(Muted)</span>}
+                {!isCameraOff && <span className="text-green-400 ml-1">(Camera On)</span>}</span>
+                {!isMuted && (
+                  <SpeakingIndicator 
+                    isActive={speakingParticipants.has(userId)} 
+                    audioLevel={localAudioLevel} 
+                  />
+                )}
               </div>
             </div>
           </div>
@@ -1271,12 +1426,29 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
                     </div>
                   </div>
                 )}
-                <div className="absolute bottom-2 left-2 bg-black bg-opacity-50 text-white px-2 py-1 rounded text-sm">
-                  {participant.name}
-                  {participant.muted && <span className="text-red-400 ml-1">(Muted)</span>}
-                  {!participant.camera_off && <span className="text-green-400 ml-1">(Camera On)</span>}
-                  {participant.is_screen_sharing && <span className="text-blue-400 ml-1">(Sharing)</span>}
-                  {participant.hand_raised && <span className="text-yellow-400 ml-1">✋</span>}
+                
+                {/* Speaking indicator overlay for remote participants */}
+                {speakingParticipants.has(participant.user_id) && (
+                  <div className="absolute top-2 right-2 bg-green-500 bg-opacity-90 text-white px-2 py-1 rounded text-xs flex items-center space-x-1">
+                    <Volume2 className="w-3 h-3" />
+                    <SpeakingIndicator isActive={true} audioLevel={50} />
+                  </div>
+                )}
+                
+                <div className="absolute bottom-2 left-2 bg-black bg-opacity-50 text-white px-2 py-1 rounded text-sm flex items-center space-x-2">
+                  <span>
+                    {participant.name}
+                    {participant.muted && <span className="text-red-400 ml-1">(Muted)</span>}
+                    {!participant.camera_off && <span className="text-green-400 ml-1">(Camera On)</span>}
+                    {participant.is_screen_sharing && <span className="text-blue-400 ml-1">(Sharing)</span>}
+                    {participant.hand_raised && <span className="text-yellow-400 ml-1">✋</span>}
+                  </span>
+                  {!participant.muted && (
+                    <SpeakingIndicator 
+                      isActive={speakingParticipants.has(participant.user_id)} 
+                      audioLevel={50} 
+                    />
+                  )}
                 </div>
               </div>
             ))}
