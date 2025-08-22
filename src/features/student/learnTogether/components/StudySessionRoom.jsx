@@ -286,6 +286,26 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         console.log(`${data.participant_name} ${data.hand_raised ? 'raised' : 'lowered'} their hand`);
         break;
         
+      case "status_update":
+        // Handle participant status updates (mute, camera, screen share)
+        console.log("Status update received:", data);
+        
+        // Update participant status in the participants list
+        setParticipants(prev => prev.map(participant => {
+          if (participant.user_id === data.from_user_id) {
+            return {
+              ...participant,
+              muted: data.muted,
+              camera_off: data.camera_off,
+              is_screen_sharing: data.is_screen_sharing
+            };
+          }
+          return participant;
+        }));
+        
+        console.log(`Participant ${data.from_user_id} status: muted=${data.muted}, camera_off=${data.camera_off}, screen_sharing=${data.is_screen_sharing}`);
+        break;
+        
       case "webrtc_offer":
       case "webrtc_answer":
       case "webrtc_ice_candidate":
@@ -499,13 +519,34 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
 
           // Update all peer connections with new stream
           peerConnectionsRef.current.forEach(async (peerConnection, participantId) => {
-            const senders = peerConnection.getSenders();
-            const audioSender = senders.find(sender => sender.track?.kind === 'audio');
-            if (audioSender) {
-              await audioSender.replaceTrack(stream.getAudioTracks()[0]);
-            } else {
-              // Add audio track if it doesn't exist
-              peerConnection.addTrack(stream.getAudioTracks()[0], stream);
+            try {
+              const senders = peerConnection.getSenders();
+              const audioSender = senders.find(sender => sender.track?.kind === 'audio');
+              if (audioSender) {
+                await audioSender.replaceTrack(stream.getAudioTracks()[0]);
+                console.log(`Replaced audio track for participant ${participantId}`);
+              } else {
+                // Add audio track if it doesn't exist
+                peerConnection.addTrack(stream.getAudioTracks()[0], stream);
+                console.log(`Added audio track for participant ${participantId}`);
+              }
+              
+              // Trigger renegotiation after track changes
+              if (peerConnection.signalingState === 'stable') {
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+                
+                if (socketRef.current?.readyState === WebSocket.OPEN) {
+                  socketRef.current.send(JSON.stringify({
+                    type: "offer",
+                    offer: offer,
+                    target: participantId
+                  }));
+                }
+                console.log(`Sent renegotiation offer to participant ${participantId} for audio track change`);
+              }
+            } catch (error) {
+              console.error(`Error updating audio track for participant ${participantId}:`, error);
             }
           });
         } else {
@@ -535,11 +576,25 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
       if (socketRef.current?.readyState === WebSocket.OPEN) {
         socketRef.current.send(JSON.stringify({
           type: "status_update",
+          from_user_id: userId,
           muted: newMutedState,
           camera_off: isCameraOff,
           is_screen_sharing: isScreenSharing
         }));
       }
+      
+      // Also update local participant status immediately
+      setParticipants(prev => prev.map(participant => {
+        if (participant.user_id === userId) {
+          return {
+            ...participant,
+            muted: newMutedState,
+            camera_off: isCameraOff,
+            is_screen_sharing: isScreenSharing
+          };
+        }
+        return participant;
+      }));
     } catch (error) {
       console.error("Microphone toggle error:", error);
       setMediaError("Failed to access microphone. Please check permissions.");
@@ -582,10 +637,15 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
           console.log("Video readyState:", localVideoRef.current.readyState);
           console.log("Video paused:", localVideoRef.current.paused);
           
-          // Force the video to play
+          // Force the video to play and ensure immediate visibility
           try {
             await localVideoRef.current.play();
             console.log("Video play started successfully");
+            
+            // Force a UI update to ensure the video is visible immediately
+            localVideoRef.current.style.display = 'block';
+            localVideoRef.current.style.opacity = '1';
+            
           } catch (playError) {
             console.log("Video play promise rejected (this is normal):", playError);
           }
@@ -608,22 +668,45 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
 
         // Update all peer connections with new stream
         peerConnectionsRef.current.forEach(async (peerConnection, participantId) => {
-          const senders = peerConnection.getSenders();
-          const videoSender = senders.find(sender => sender.track?.kind === 'video');
-          if (videoSender) {
-            await videoSender.replaceTrack(stream.getVideoTracks()[0]);
-          } else {
-            // Add video track if it doesn't exist
-            peerConnection.addTrack(stream.getVideoTracks()[0], stream);
-          }
-          
-          const audioSender = senders.find(sender => sender.track?.kind === 'audio');
-          if (audioSender) {
-            // Always replace audio track to maintain the connection
-            await audioSender.replaceTrack(stream.getAudioTracks()[0]);
-          } else {
-            // Add audio track if it doesn't exist
-            peerConnection.addTrack(stream.getAudioTracks()[0], stream);
+          try {
+            const senders = peerConnection.getSenders();
+            const videoSender = senders.find(sender => sender.track?.kind === 'video');
+            if (videoSender) {
+              await videoSender.replaceTrack(stream.getVideoTracks()[0]);
+              console.log(`Replaced video track for participant ${participantId}`);
+            } else {
+              // Add video track if it doesn't exist
+              peerConnection.addTrack(stream.getVideoTracks()[0], stream);
+              console.log(`Added video track for participant ${participantId}`);
+            }
+            
+            const audioSender = senders.find(sender => sender.track?.kind === 'audio');
+            if (audioSender) {
+              // Always replace audio track to maintain the connection
+              await audioSender.replaceTrack(stream.getAudioTracks()[0]);
+              console.log(`Replaced audio track for participant ${participantId}`);
+            } else {
+              // Add audio track if it doesn't exist
+              peerConnection.addTrack(stream.getAudioTracks()[0], stream);
+              console.log(`Added audio track for participant ${participantId}`);
+            }
+            
+            // Trigger renegotiation after track changes
+            if (peerConnection.signalingState === 'stable') {
+              const offer = await peerConnection.createOffer();
+              await peerConnection.setLocalDescription(offer);
+              
+              if (socketRef.current?.readyState === WebSocket.OPEN) {
+                socketRef.current.send(JSON.stringify({
+                  type: "offer",
+                  offer: offer,
+                  target: participantId
+                }));
+              }
+              console.log(`Sent renegotiation offer to participant ${participantId} for video track change`);
+            }
+          } catch (error) {
+            console.error(`Error updating video track for participant ${participantId}:`, error);
           }
         });
         
@@ -640,10 +723,30 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
 
           // Remove video tracks from peer connections
           peerConnectionsRef.current.forEach(async (peerConnection, participantId) => {
-            const senders = peerConnection.getSenders();
-            const videoSender = senders.find(sender => sender.track?.kind === 'video');
-            if (videoSender) {
-              await videoSender.replaceTrack(null);
+            try {
+              const senders = peerConnection.getSenders();
+              const videoSender = senders.find(sender => sender.track?.kind === 'video');
+              if (videoSender) {
+                await videoSender.replaceTrack(null);
+                console.log(`Removed video track for participant ${participantId}`);
+                
+                // Trigger renegotiation after removing video track
+                if (peerConnection.signalingState === 'stable') {
+                  const offer = await peerConnection.createOffer();
+                  await peerConnection.setLocalDescription(offer);
+                  
+                  if (socketRef.current?.readyState === WebSocket.OPEN) {
+                    socketRef.current.send(JSON.stringify({
+                      type: "offer",
+                      offer: offer,
+                      target: participantId
+                    }));
+                  }
+                  console.log(`Sent renegotiation offer to participant ${participantId} for video removal`);
+                }
+              }
+            } catch (error) {
+              console.error(`Error removing video track for participant ${participantId}:`, error);
             }
           });
         }
@@ -659,11 +762,25 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
       if (socketRef.current?.readyState === WebSocket.OPEN) {
         socketRef.current.send(JSON.stringify({
           type: "status_update",
+          from_user_id: userId,
           muted: isMuted,
           camera_off: newCameraState,
           is_screen_sharing: isScreenSharing
         }));
       }
+      
+      // Also update local participant status immediately
+      setParticipants(prev => prev.map(participant => {
+        if (participant.user_id === userId) {
+          return {
+            ...participant,
+            muted: isMuted,
+            camera_off: newCameraState,
+            is_screen_sharing: isScreenSharing
+          };
+        }
+        return participant;
+      }));
       
       setMediaError(null);
     } catch (error) {
@@ -683,12 +800,33 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         
         // Replace video track in all peer connections with screen share
         peerConnectionsRef.current.forEach(async (peerConnection, participantId) => {
-          const senders = peerConnection.getSenders();
-          const videoSender = senders.find(sender => sender.track?.kind === 'video');
-          if (videoSender) {
-            await videoSender.replaceTrack(screenStream.getVideoTracks()[0]);
-          } else {
-            peerConnection.addTrack(screenStream.getVideoTracks()[0], screenStream);
+          try {
+            const senders = peerConnection.getSenders();
+            const videoSender = senders.find(sender => sender.track?.kind === 'video');
+            if (videoSender) {
+              await videoSender.replaceTrack(screenStream.getVideoTracks()[0]);
+              console.log(`Replaced video track with screen share for participant ${participantId}`);
+            } else {
+              peerConnection.addTrack(screenStream.getVideoTracks()[0], screenStream);
+              console.log(`Added screen share track for participant ${participantId}`);
+            }
+            
+            // Trigger renegotiation for screen share
+            if (peerConnection.signalingState === 'stable') {
+              const offer = await peerConnection.createOffer();
+              await peerConnection.setLocalDescription(offer);
+              
+              if (socketRef.current?.readyState === WebSocket.OPEN) {
+                socketRef.current.send(JSON.stringify({
+                  type: "offer",
+                  offer: offer,
+                  target: participantId
+                }));
+              }
+              console.log(`Sent renegotiation offer to participant ${participantId} for screen share`);
+            }
+          } catch (error) {
+            console.error(`Error starting screen share for participant ${participantId}:`, error);
           }
         });
 
@@ -711,10 +849,30 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
               
               // Replace screen share with camera in peer connections
               peerConnectionsRef.current.forEach(async (peerConnection, participantId) => {
-                const senders = peerConnection.getSenders();
-                const videoSender = senders.find(sender => sender.track?.kind === 'video');
-                if (videoSender) {
-                  await videoSender.replaceTrack(cameraStream.getVideoTracks()[0]);
+                try {
+                  const senders = peerConnection.getSenders();
+                  const videoSender = senders.find(sender => sender.track?.kind === 'video');
+                  if (videoSender) {
+                    await videoSender.replaceTrack(cameraStream.getVideoTracks()[0]);
+                    console.log(`Switched back to camera for participant ${participantId}`);
+                    
+                    // Trigger renegotiation
+                    if (peerConnection.signalingState === 'stable') {
+                      const offer = await peerConnection.createOffer();
+                      await peerConnection.setLocalDescription(offer);
+                      
+                      if (socketRef.current?.readyState === WebSocket.OPEN) {
+                        socketRef.current.send(JSON.stringify({
+                          type: "offer",
+                          offer: offer,
+                          target: participantId
+                        }));
+                      }
+                      console.log(`Sent renegotiation offer to participant ${participantId} for camera switch`);
+                    }
+                  }
+                } catch (error) {
+                  console.error(`Error switching back to camera for participant ${participantId}:`, error);
                 }
               });
 
@@ -728,10 +886,30 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
           } else {
             // Remove video track if camera was off
             peerConnectionsRef.current.forEach(async (peerConnection, participantId) => {
-              const senders = peerConnection.getSenders();
-              const videoSender = senders.find(sender => sender.track?.kind === 'video');
-              if (videoSender) {
-                await videoSender.replaceTrack(null);
+              try {
+                const senders = peerConnection.getSenders();
+                const videoSender = senders.find(sender => sender.track?.kind === 'video');
+                if (videoSender) {
+                  await videoSender.replaceTrack(null);
+                  console.log(`Removed video track for participant ${participantId}`);
+                  
+                  // Trigger renegotiation
+                  if (peerConnection.signalingState === 'stable') {
+                    const offer = await peerConnection.createOffer();
+                    await peerConnection.setLocalDescription(offer);
+                    
+                    if (socketRef.current?.readyState === WebSocket.OPEN) {
+                      socketRef.current.send(JSON.stringify({
+                        type: "offer",
+                        offer: offer,
+                        target: participantId
+                      }));
+                    }
+                    console.log(`Sent renegotiation offer to participant ${participantId} for video removal`);
+                  }
+                }
+              } catch (error) {
+                console.error(`Error removing video track for participant ${participantId}:`, error);
               }
             });
             
@@ -743,6 +921,7 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
           if (socketRef.current?.readyState === WebSocket.OPEN) {
             socketRef.current.send(JSON.stringify({
               type: "status_update",
+              from_user_id: userId,
               muted: isMuted,
               camera_off: isCameraOff,
               is_screen_sharing: false
@@ -761,10 +940,30 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
           
           // Replace screen share with camera
           peerConnectionsRef.current.forEach(async (peerConnection, participantId) => {
-            const senders = peerConnection.getSenders();
-            const videoSender = senders.find(sender => sender.track?.kind === 'video');
-            if (videoSender) {
-              await videoSender.replaceTrack(cameraStream.getVideoTracks()[0]);
+            try {
+              const senders = peerConnection.getSenders();
+              const videoSender = senders.find(sender => sender.track?.kind === 'video');
+              if (videoSender) {
+                await videoSender.replaceTrack(cameraStream.getVideoTracks()[0]);
+                console.log(`Manual switch back to camera for participant ${participantId}`);
+                
+                // Trigger renegotiation
+                if (peerConnection.signalingState === 'stable') {
+                  const offer = await peerConnection.createOffer();
+                  await peerConnection.setLocalDescription(offer);
+                  
+                  if (socketRef.current?.readyState === WebSocket.OPEN) {
+                    socketRef.current.send(JSON.stringify({
+                      type: "offer",
+                      offer: offer,
+                      target: participantId
+                    }));
+                  }
+                  console.log(`Sent renegotiation offer to participant ${participantId} for manual camera switch`);
+                }
+              }
+            } catch (error) {
+              console.error(`Error manually switching back to camera for participant ${participantId}:`, error);
             }
           });
 
@@ -775,10 +974,30 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         } else {
           // Remove video track
           peerConnectionsRef.current.forEach(async (peerConnection, participantId) => {
-            const senders = peerConnection.getSenders();
-            const videoSender = senders.find(sender => sender.track?.kind === 'video');
-            if (videoSender) {
-              await videoSender.replaceTrack(null);
+            try {
+              const senders = peerConnection.getSenders();
+              const videoSender = senders.find(sender => sender.track?.kind === 'video');
+              if (videoSender) {
+                await videoSender.replaceTrack(null);
+                console.log(`Manual video track removal for participant ${participantId}`);
+                
+                // Trigger renegotiation
+                if (peerConnection.signalingState === 'stable') {
+                  const offer = await peerConnection.createOffer();
+                  await peerConnection.setLocalDescription(offer);
+                  
+                  if (socketRef.current?.readyState === WebSocket.OPEN) {
+                    socketRef.current.send(JSON.stringify({
+                      type: "offer",
+                      offer: offer,
+                      target: participantId
+                    }));
+                  }
+                  console.log(`Sent renegotiation offer to participant ${participantId} for manual video removal`);
+                }
+              }
+            } catch (error) {
+              console.error(`Error manually removing video track for participant ${participantId}:`, error);
             }
           });
           
@@ -794,11 +1013,25 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
       if (socketRef.current?.readyState === WebSocket.OPEN) {
         socketRef.current.send(JSON.stringify({
           type: "status_update",
+          from_user_id: userId,
           muted: isMuted,
           camera_off: isCameraOff,
           is_screen_sharing: !isScreenSharing
         }));
       }
+      
+      // Also update local participant status immediately
+      setParticipants(prev => prev.map(participant => {
+        if (participant.user_id === userId) {
+          return {
+            ...participant,
+            muted: isMuted,
+            camera_off: isCameraOff,
+            is_screen_sharing: !isScreenSharing
+          };
+        }
+        return participant;
+      }));
     } catch (error) {
       console.error("Screen share error:", error);
       if (error.name === 'NotAllowedError') {
