@@ -51,32 +51,47 @@ def cleanup_inactive_study_groups():
         from database import study_groups_collection
         from datetime import datetime, timedelta
         
-        # Find groups that are older than 5 minutes with no active participants
-        cutoff_time = datetime.utcnow() - timedelta(minutes=5)
+        # Find groups that are older than 10 minutes with no active participants
+        cutoff_time = datetime.utcnow() - timedelta(minutes=10)
         
+        # More comprehensive query - find truly inactive groups
         inactive_groups = study_groups_collection.find({
             "is_session_active": True,
             "last_activity": {"$lt": cutoff_time},
             "$or": [
                 {"active_participants": {"$size": 0}},
-                {"active_participants": {"$exists": False}}
+                {"active_participants": {"$exists": False}},
+                {"active_participants": []}  # Explicitly empty array
             ]
         })
         
         deleted_count = 0
+        deleted_groups = []
+        
         for group in inactive_groups:
-            # Double check - make sure it's really been 5 minutes and no participants
-            if len(group.get("active_participants", [])) == 0:
+            # Triple check - make sure it's really been 10 minutes and no participants
+            participants = group.get("active_participants", [])
+            last_activity = group.get("last_activity")
+            
+            if len(participants) == 0 and last_activity and last_activity < cutoff_time:
                 result = study_groups_collection.delete_one({"_id": group["_id"]})
                 if result.deleted_count > 0:
                     deleted_count += 1
-                    print(f"Auto-deleted inactive group: {group.get('title', 'Unknown')} - ID: {group['_id']}")
+                    group_info = {
+                        "title": group.get('title', 'Unknown'),
+                        "id": str(group['_id']),
+                        "last_activity": last_activity.isoformat() if last_activity else "N/A"
+                    }
+                    deleted_groups.append(group_info)
+                    print(f"🗑️ Auto-deleted inactive group: {group_info['title']} (ID: {group_info['id']}) - Empty for 10+ minutes")
         
         if deleted_count > 0:
-            logger.info(f"Cleaned up {deleted_count} inactive study groups")
+            logger.info(f"🧹 Cleaned up {deleted_count} inactive study groups: {[g['title'] for g in deleted_groups]}")
+        else:
+            print("✅ No inactive groups found for cleanup")
             
     except Exception as e:
-        logger.error(f"Error in cleanup job: {str(e)}")
+        logger.error(f"❌ Error in cleanup job: {str(e)}")
 
 scheduler.add_job(cleanup_inactive_study_groups, 'interval', minutes=5)
 

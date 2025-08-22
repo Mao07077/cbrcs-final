@@ -137,7 +137,7 @@ def create_study_group(data: dict = Body(...)):
             "session_started_at": datetime.utcnow(),
             "active_participants": [creator_id],  # Creator is first active participant
             "last_activity": datetime.utcnow(),  # Track activity for auto-cleanup
-            "auto_delete_minutes": 5  # Auto-delete after 5 minutes of inactivity
+            "auto_delete_minutes": 10  # Auto-delete after 10 minutes of inactivity
         }
         
         print(f"Group data to insert: {group_data}")  # Debug log
@@ -277,6 +277,7 @@ def start_study_session(group_id: str, data: dict = Body(...)):
                 "$set": {
                     "is_session_active": True,
                     "session_started_at": datetime.utcnow(),
+                    "last_activity": datetime.utcnow(),  # Track activity for auto-cleanup
                     "active_participants": [user_id]  # Reset to only the starter
                 }
             }
@@ -390,8 +391,12 @@ def join_study_session(group_id: str, data: dict = Body(...)):
         if user_id not in group.get("active_participants", []):
             study_groups_collection.update_one(
                 {"_id": ObjectId(group_id)},
-                {"$addToSet": {"active_participants": user_id}}
+                {
+                    "$addToSet": {"active_participants": user_id},
+                    "$set": {"last_activity": datetime.utcnow()}  # Reset timer - cancel auto-delete
+                }
             )
+            print(f"User {user_id} joined - auto-delete timer reset")  # Debug log
         
         return {
             "success": True,
@@ -419,15 +424,15 @@ def leave_study_session(group_id: str, data: dict = Body(...)):
         print(f"After removing user {user_id}, active participants: {updated_group.get('active_participants', [])}")  # Debug log
         
         if updated_group and len(updated_group.get("active_participants", [])) == 0:
-            # Instead of deleting immediately, just mark session as inactive
-            # This allows other users to still see and join the session
-            print(f"No participants left, but keeping session active for others to join")  # Debug log
+            # Update last_activity when room becomes empty - this triggers 10min auto-delete
+            print(f"No participants left, starting 10-minute countdown for auto-deletion")  # Debug log
             study_groups_collection.update_one(
                 {"_id": ObjectId(group_id)},
                 {
                     "$set": {
-                        "is_session_active": True,  # Keep it active
-                        "active_participants": []  # Empty but still active
+                        "is_session_active": True,  # Keep it active for now
+                        "active_participants": [],  # Empty but trackable
+                        "last_activity": datetime.utcnow()  # Start the 10-minute timer
                     }
                 }
             )
@@ -641,3 +646,62 @@ def delete_all_study_groups():
     except Exception as e:
         print(f"Error deleting all groups: {str(e)}")
         return {"error": str(e), "error_type": type(e).__name__}
+
+@router.get("/api/study-groups/status")
+def get_groups_status():
+    """Debug endpoint to check all groups and their auto-delete status"""
+    try:
+        from datetime import datetime, timedelta
+        
+        cutoff_time = datetime.utcnow() - timedelta(minutes=10)
+        all_groups = list(study_groups_collection.find({}))
+        
+        status_info = {
+            "total_groups": len(all_groups),
+            "active_groups": 0,
+            "empty_groups": 0,
+            "groups_for_deletion": 0,
+            "groups_details": []
+        }
+        
+        for group in all_groups:
+            participants = group.get("active_participants", [])
+            last_activity = group.get("last_activity")
+            is_active = group.get("is_session_active", False)
+            
+            # Calculate if this group would be deleted
+            will_be_deleted = (
+                is_active and 
+                len(participants) == 0 and 
+                last_activity and 
+                last_activity < cutoff_time
+            )
+            
+            group_detail = {
+                "title": group.get("title", "Unknown"),
+                "id": str(group["_id"]),
+                "is_session_active": is_active,
+                "participant_count": len(participants),
+                "participants": participants,
+                "last_activity": last_activity.isoformat() if last_activity else None,
+                "minutes_since_activity": int((datetime.utcnow() - last_activity).total_seconds() / 60) if last_activity else None,
+                "will_be_auto_deleted": will_be_deleted
+            }
+            
+            status_info["groups_details"].append(group_detail)
+            
+            if is_active:
+                status_info["active_groups"] += 1
+            if len(participants) == 0:
+                status_info["empty_groups"] += 1
+            if will_be_deleted:
+                status_info["groups_for_deletion"] += 1
+        
+        return {
+            "success": True,
+            "status": status_info,
+            "cutoff_time": cutoff_time.isoformat(),
+            "current_time": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get status: {str(e)}")
