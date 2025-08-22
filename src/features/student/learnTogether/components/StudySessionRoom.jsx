@@ -1292,7 +1292,23 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
 
   // Clean up media streams and peer connections on unmount
   useEffect(() => {
+    // Handle browser tab close/refresh - cleanup participants
+    const handleBeforeUnload = async (event) => {
+      try {
+        // Call leave session to remove from participants
+        await leaveSession(sessionInfo.group.id);
+      } catch (error) {
+        console.warn("Cleanup on beforeunload failed:", error);
+      }
+    };
+
+    // Add event listener for page unload
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
     return () => {
+      // Remove event listener
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      
       // Stop local media tracks
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach(track => track.stop());
@@ -1304,8 +1320,13 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
       });
       peerConnectionsRef.current.clear();
       remoteVideosRef.current.clear();
+      
+      // Also call leave session on unmount
+      leaveSession(sessionInfo.group.id).catch(error => {
+        console.warn("Cleanup on unmount failed:", error);
+      });
     };
-  }, []);
+  }, [sessionInfo, leaveSession]);
 
   const formatTime = (timestamp) => {
     return new Date(timestamp).toLocaleTimeString([], { 

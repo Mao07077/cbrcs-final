@@ -387,8 +387,13 @@ def join_study_session(group_id: str, data: dict = Body(...)):
         if not group.get("is_session_active", False):
             raise HTTPException(status_code=400, detail="No active session to join")
         
+        current_participants = group.get("active_participants", [])
+        print(f"🔍 JOIN DEBUG - Group: {group.get('title', 'Unknown')}")
+        print(f"🔍 User trying to join: {user_id}")
+        print(f"🔍 Current participants before join: {current_participants}")
+        
         # Add user to active participants if not already there
-        if user_id not in group.get("active_participants", []):
+        if user_id not in current_participants:
             study_groups_collection.update_one(
                 {"_id": ObjectId(group_id)},
                 {
@@ -396,11 +401,20 @@ def join_study_session(group_id: str, data: dict = Body(...)):
                     "$set": {"last_activity": datetime.utcnow()}  # Reset timer - cancel auto-delete
                 }
             )
-            print(f"User {user_id} joined - auto-delete timer reset")  # Debug log
+            print(f"✅ User {user_id} added to participants - auto-delete timer reset")
+        else:
+            print(f"⚠️ User {user_id} already in participants list - not adding again")
+        
+        # Verify the final state
+        updated_group = study_groups_collection.find_one({"_id": ObjectId(group_id)})
+        final_participants = updated_group.get("active_participants", [])
+        print(f"🔍 Final participants after join: {final_participants}")
         
         return {
             "success": True,
-            "message": "Successfully joined the study session"
+            "message": "Successfully joined the study session",
+            "participant_count": len(final_participants),
+            "participants": final_participants
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to join session: {str(e)}")
@@ -413,6 +427,16 @@ def leave_study_session(group_id: str, data: dict = Body(...)):
         if not user_id:
             raise HTTPException(status_code=400, detail="User ID is required")
         
+        # Get current state before leaving
+        group = study_groups_collection.find_one({"_id": ObjectId(group_id)})
+        if not group:
+            raise HTTPException(status_code=404, detail="Study group not found")
+            
+        current_participants = group.get("active_participants", [])
+        print(f"🔍 LEAVE DEBUG - Group: {group.get('title', 'Unknown')}")
+        print(f"🔍 User trying to leave: {user_id}")
+        print(f"🔍 Current participants before leave: {current_participants}")
+        
         # Remove user from active participants
         study_groups_collection.update_one(
             {"_id": ObjectId(group_id)},
@@ -421,11 +445,12 @@ def leave_study_session(group_id: str, data: dict = Body(...)):
         
         # Check if no participants are left
         updated_group = study_groups_collection.find_one({"_id": ObjectId(group_id)})
-        print(f"After removing user {user_id}, active participants: {updated_group.get('active_participants', [])}")  # Debug log
+        final_participants = updated_group.get("active_participants", [])
+        print(f"🔍 Final participants after leave: {final_participants}")
         
-        if updated_group and len(updated_group.get("active_participants", [])) == 0:
+        if updated_group and len(final_participants) == 0:
             # Update last_activity when room becomes empty - this triggers 10min auto-delete
-            print(f"No participants left, starting 10-minute countdown for auto-deletion")  # Debug log
+            print(f"🕒 No participants left, starting 10-minute countdown for auto-deletion")
             study_groups_collection.update_one(
                 {"_id": ObjectId(group_id)},
                 {
@@ -439,16 +464,56 @@ def leave_study_session(group_id: str, data: dict = Body(...)):
             return {
                 "success": True,
                 "message": "Left session but keeping it active for others to join",
-                "group_deleted": False
+                "group_deleted": False,
+                "participant_count": 0,
+                "participants": []
             }
         
         return {
             "success": True,
             "message": "Successfully left the study session",
-            "group_deleted": False
+            "group_deleted": False,
+            "participant_count": len(final_participants),
+            "participants": final_participants
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to leave session: {str(e)}")
+
+@router.post("/api/study-groups/{group_id}/force-cleanup")
+def force_cleanup_participants(group_id: str):
+    """Force cleanup of participants - remove all and reset to empty"""
+    try:
+        # Get current state
+        group = study_groups_collection.find_one({"_id": ObjectId(group_id)})
+        if not group:
+            raise HTTPException(status_code=404, detail="Study group not found")
+            
+        current_participants = group.get("active_participants", [])
+        print(f"🧹 FORCE CLEANUP - Group: {group.get('title', 'Unknown')}")
+        print(f"🧹 Current participants before cleanup: {current_participants}")
+        
+        # Force reset participants to empty array
+        study_groups_collection.update_one(
+            {"_id": ObjectId(group_id)},
+            {
+                "$set": {
+                    "active_participants": [],
+                    "last_activity": datetime.utcnow()
+                }
+            }
+        )
+        
+        print(f"✅ Force cleanup completed - participants reset to empty")
+        
+        return {
+            "success": True,
+            "message": "Participants list force-cleaned",
+            "previous_count": len(current_participants),
+            "previous_participants": current_participants,
+            "new_count": 0
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to force cleanup: {str(e)}")
 
 @router.post("/api/study-groups/test-create")
 def test_create_group():

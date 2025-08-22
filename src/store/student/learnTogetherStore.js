@@ -285,6 +285,31 @@ const useLearnTogetherStore = create((set, get) => ({
       };
     }
   },
+
+  forceCleanupParticipants: async (groupId) => {
+    try {
+      const response = await apiClient.post(`/api/study-groups/${groupId}/force-cleanup`);
+      
+      if (response.data.success) {
+        // Refresh groups to show updated participant count
+        get().fetchGroups();
+        return {
+          success: true,
+          previousCount: response.data.previous_count,
+          previousParticipants: response.data.previous_participants,
+          message: response.data.message
+        };
+      } else {
+        throw new Error("Force cleanup failed");
+      }
+    } catch (error) {
+      console.error("Force cleanup error:", error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  },
 }));
 
 export default useLearnTogetherStore;
