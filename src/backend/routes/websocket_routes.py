@@ -326,3 +326,78 @@ async def study_group_websocket(websocket: WebSocket, group_id: str):
             rooms[room_key].remove(websocket)
         if websocket in student_info[room_key]:
             del student_info[room_key][websocket]
+
+# Store dashboard connections for live updates
+dashboard_connections = []
+
+@router.websocket("/ws/dashboard")
+async def dashboard_websocket(websocket: WebSocket):
+    """WebSocket endpoint for live dashboard updates"""
+    await websocket.accept()
+    dashboard_connections.append(websocket)
+    
+    try:
+        # Send initial data
+        await send_dashboard_update(websocket)
+        
+        # Keep connection alive and handle any incoming messages
+        while True:
+            try:
+                data = await websocket.receive_text()
+                # Dashboard doesn't need to send messages, just receive updates
+            except WebSocketDisconnect:
+                break
+    except WebSocketDisconnect:
+        pass
+    finally:
+        if websocket in dashboard_connections:
+            dashboard_connections.remove(websocket)
+
+async def send_dashboard_update(websocket=None):
+    """Send updated group info to dashboard"""
+    try:
+        # Get all active groups with current participant counts
+        active_groups = list(study_groups_collection.find({"is_session_active": True}))
+        
+        groups_data = []
+        for group in active_groups:
+            group_data = {
+                "id": str(group["_id"]),
+                "title": group.get("title", ""),
+                "subject": group.get("subject", ""),
+                "participant_count": len(group.get("active_participants", [])),
+                "active_participants": group.get("active_participants", []),
+                "creator_id": group.get("creator_id", ""),
+                "session_started_at": group.get("session_started_at"),
+                "last_activity": group.get("last_activity")
+            }
+            groups_data.append(group_data)
+        
+        update_message = {
+            "type": "dashboard_update",
+            "groups": groups_data,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        # Send to specific websocket or all dashboard connections
+        if websocket:
+            await websocket.send_text(json.dumps(update_message))
+        else:
+            # Broadcast to all dashboard connections
+            disconnected = []
+            for ws in dashboard_connections:
+                try:
+                    await ws.send_text(json.dumps(update_message))
+                except:
+                    disconnected.append(ws)
+            
+            # Remove disconnected clients
+            for ws in disconnected:
+                dashboard_connections.remove(ws)
+                
+    except Exception as e:
+        logger.error(f"Error sending dashboard update: {e}")
+
+async def broadcast_participant_change(group_id):
+    """Broadcast participant count changes to dashboard"""
+    await send_dashboard_update()

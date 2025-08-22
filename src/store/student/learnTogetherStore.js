@@ -35,6 +35,10 @@ const useLearnTogetherStore = create((set, get) => ({
     }
   },
 
+  setGroups: (groups) => {
+    set({ groups });
+  },
+
   openModal: () => set({ isModalOpen: true }),
   closeModal: () => set({ isModalOpen: false }),
 

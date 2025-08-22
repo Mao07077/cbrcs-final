@@ -372,7 +372,7 @@ def verify_group_password(group_id: str, data: dict = Body(...)):
         raise HTTPException(status_code=500, detail=f"Failed to verify password: {str(e)}")
 
 @router.post("/api/study-groups/{group_id}/join-session")
-def join_study_session(group_id: str, data: dict = Body(...)):
+async def join_study_session(group_id: str, data: dict = Body(...)):
     """Join an active study session"""
     try:
         user_id = data.get("user_id")
@@ -411,6 +411,13 @@ def join_study_session(group_id: str, data: dict = Body(...)):
         final_participants = updated_group.get("active_participants", [])
         print(f"🔍 Final participants after join: {final_participants}")
         
+        # Broadcast participant change to dashboard
+        try:
+            from routes.websocket_routes import broadcast_participant_change
+            await broadcast_participant_change(group_id)
+        except Exception as e:
+            print(f"Warning: Could not broadcast participant change: {e}")
+        
         return {
             "success": True,
             "message": "Successfully joined the study session",
@@ -421,7 +428,7 @@ def join_study_session(group_id: str, data: dict = Body(...)):
         raise HTTPException(status_code=500, detail=f"Failed to join session: {str(e)}")
 
 @router.post("/api/study-groups/{group_id}/leave-session")
-def leave_study_session(group_id: str, data: dict = Body(...)):
+async def leave_study_session(group_id: str, data: dict = Body(...)):
     """Leave an active study session"""
     try:
         user_id = data.get("user_id")
@@ -462,6 +469,14 @@ def leave_study_session(group_id: str, data: dict = Body(...)):
                     }
                 }
             )
+            
+            # Broadcast participant change to dashboard
+            try:
+                from routes.websocket_routes import broadcast_participant_change
+                await broadcast_participant_change(group_id)
+            except Exception as e:
+                print(f"Warning: Could not broadcast participant change: {e}")
+                
             return {
                 "success": True,
                 "message": "Left session but keeping it active for others to join",
@@ -469,6 +484,13 @@ def leave_study_session(group_id: str, data: dict = Body(...)):
                 "participant_count": 0,
                 "participants": []
             }
+        
+        # Broadcast participant change to dashboard (for non-empty rooms too)
+        try:
+            from routes.websocket_routes import broadcast_participant_change
+            await broadcast_participant_change(group_id)
+        except Exception as e:
+            print(f"Warning: Could not broadcast participant change: {e}")
         
         return {
             "success": True,

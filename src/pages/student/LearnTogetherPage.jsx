@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import useLearnTogetherStore from "../../store/student/learnTogetherStore";
 import StudyGroupCard from "../../features/student/learnTogether/components/StudyGroupCard";
 import CreateGroupModal from "../../features/student/learnTogether/components/CreateGroupModal";
@@ -9,26 +9,91 @@ const LearnTogetherPage = () => {
     openModal, 
     fetchGroups, 
     cleanupInactiveGroups,
+    setGroups, // Add this to update groups from WebSocket
     isLoading, 
     error
   } = useLearnTogetherStore();
 
   const [cleanupResult, setCleanupResult] = useState(null);
   const [isCleaningUp, setIsCleaningUp] = useState(false);
+  const [isLiveConnected, setIsLiveConnected] = useState(false);
+  const websocketRef = useRef(null);
 
   // Always fetch only active sessions (live meetings)
   useEffect(() => {
     fetchGroups(true); // true = activeOnly
   }, [fetchGroups]);
 
-  // Add automatic refresh every 10 seconds to update participant counts
+  // WebSocket connection for live participant count updates
+  useEffect(() => {
+    const connectWebSocket = () => {
+      try {
+        const baseUrl = (import.meta.env.VITE_API_URL || "https://cbrcs-final.onrender.com").replace(/\/$/, '');
+        const wsBaseUrl = baseUrl.replace(/^http/, 'ws');
+        const wsUrl = `${wsBaseUrl}/ws/dashboard`;
+        
+        console.log("🔗 Connecting to dashboard WebSocket:", wsUrl);
+        websocketRef.current = new WebSocket(wsUrl);
+        
+        websocketRef.current.onopen = () => {
+          console.log("✅ Dashboard WebSocket connected");
+          setIsLiveConnected(true);
+        };
+        
+        websocketRef.current.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === "dashboard_update") {
+              console.log("📊 Live participant update received:", data.groups);
+              // Update the groups with new participant counts
+              setGroups(data.groups);
+            }
+          } catch (error) {
+            console.error("Error parsing WebSocket message:", error);
+          }
+        };
+        
+        websocketRef.current.onclose = () => {
+          console.log("🔌 Dashboard WebSocket disconnected, reconnecting...");
+          setIsLiveConnected(false);
+          // Reconnect after 3 seconds
+          setTimeout(connectWebSocket, 3000);
+        };
+        
+        websocketRef.current.onerror = (error) => {
+          console.error("❌ Dashboard WebSocket error:", error);
+          setIsLiveConnected(false);
+        };
+        
+      } catch (error) {
+        console.error("Failed to connect WebSocket:", error);
+        setIsLiveConnected(false);
+        // Retry after 5 seconds
+        setTimeout(connectWebSocket, 5000);
+      }
+    };
+
+    connectWebSocket();
+
+    // Cleanup on unmount
+    return () => {
+      if (websocketRef.current) {
+        websocketRef.current.close();
+      }
+    };
+  }, [setGroups]);
+
+  // Reduced auto-refresh interval since we have live updates
   useEffect(() => {
     const interval = setInterval(() => {
-      fetchGroups(true); // Refresh to get updated participant counts
-    }, 10000); // Refresh every 10 seconds
+      // Only refresh if WebSocket is not connected
+      if (!isLiveConnected) {
+        fetchGroups(true);
+      }
+    }, 30000); // Refresh every 30 seconds as backup
 
     return () => clearInterval(interval);
-  }, [fetchGroups]);
+  }, [fetchGroups, isLiveConnected]);
 
   const handleRefresh = () => {
     fetchGroups(true); // Manual refresh for active sessions
@@ -83,11 +148,26 @@ const LearnTogetherPage = () => {
       
       <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-6">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">
-            Live Study Sessions
-          </h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">
+              Live Study Sessions
+            </h1>
+            <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
+              isLiveConnected 
+                ? 'bg-green-100 text-green-700' 
+                : 'bg-yellow-100 text-yellow-700'
+            }`}>
+              <div className={`w-2 h-2 rounded-full ${
+                isLiveConnected ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'
+              }`}></div>
+              {isLiveConnected ? 'LIVE UPDATES' : 'OFFLINE'}
+            </div>
+          </div>
           <p className="text-sm text-gray-600 mt-1">
-            Currently active study sessions you can join right now
+            {isLiveConnected 
+              ? 'Participant counts update automatically in real-time' 
+              : 'Currently active study sessions you can join right now'
+            }
           </p>
         </div>
         
