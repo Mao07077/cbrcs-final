@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import useLearnTogetherStore from "../../store/student/learnTogetherStore";
 import StudyGroupCard from "../../features/student/learnTogether/components/StudyGroupCard";
 import CreateGroupModal from "../../features/student/learnTogether/components/CreateGroupModal";
@@ -8,9 +8,13 @@ const LearnTogetherPage = () => {
     groups, 
     openModal, 
     fetchGroups, 
+    cleanupInactiveGroups,
     isLoading, 
     error
   } = useLearnTogetherStore();
+
+  const [cleanupResult, setCleanupResult] = useState(null);
+  const [isCleaningUp, setIsCleaningUp] = useState(false);
 
   // Always fetch only active sessions (live meetings)
   useEffect(() => {
@@ -21,6 +25,20 @@ const LearnTogetherPage = () => {
 
   const handleRefresh = () => {
     fetchGroups(true); // Manual refresh for active sessions
+  };
+
+  const handleCleanup = async () => {
+    setIsCleaningUp(true);
+    setCleanupResult(null);
+    
+    const result = await cleanupInactiveGroups();
+    setCleanupResult(result);
+    setIsCleaningUp(false);
+    
+    // Clear the result message after 5 seconds
+    setTimeout(() => {
+      setCleanupResult(null);
+    }, 5000);
   };
 
   if (isLoading) {
@@ -36,6 +54,23 @@ const LearnTogetherPage = () => {
       {error && (
         <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded mb-4">
           {error}
+        </div>
+      )}
+
+      {cleanupResult && (
+        <div className={`border px-4 py-3 rounded mb-4 ${
+          cleanupResult.success 
+            ? 'bg-green-100 border-green-400 text-green-700' 
+            : 'bg-red-100 border-red-400 text-red-700'
+        }`}>
+          {cleanupResult.success 
+            ? `✅ ${cleanupResult.message}` 
+            : `❌ ${cleanupResult.error}`}
+          {cleanupResult.deletedGroups && cleanupResult.deletedGroups.length > 0 && (
+            <div className="mt-2 text-sm">
+              <strong>Deleted groups:</strong> {cleanupResult.deletedGroups.map(g => g.title).join(', ')}
+            </div>
+          )}
         </div>
       )}
       
@@ -55,6 +90,17 @@ const LearnTogetherPage = () => {
             className="px-4 py-2 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-75 transition-colors"
           >
             🔄 Refresh Sessions
+          </button>
+          <button
+            onClick={handleCleanup}
+            disabled={isCleaningUp}
+            className={`px-4 py-2 font-semibold rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-opacity-75 transition-colors ${
+              isCleaningUp 
+                ? 'bg-gray-400 text-gray-700 cursor-not-allowed' 
+                : 'bg-red-600 text-white hover:bg-red-700 focus:ring-red-500'
+            }`}
+          >
+            {isCleaningUp ? '🧹 Cleaning...' : '🧹 Cleanup Inactive'}
           </button>
           <button
             onClick={openModal}

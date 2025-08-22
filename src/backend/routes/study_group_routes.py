@@ -549,6 +549,53 @@ def cleanup_inactive_groups():
     except Exception as e:
         return {"error": str(e), "error_type": type(e).__name__}
 
+@router.post("/api/study-groups/cleanup-all-inactive")
+def cleanup_all_inactive_groups():
+    """Clean up ALL inactive groups (with no active participants)"""
+    try:
+        # Find all groups with no active participants or empty active_participants
+        inactive_groups = study_groups_collection.find({
+            "$or": [
+                {"active_participants": {"$size": 0}},
+                {"active_participants": {"$exists": False}},
+                {"is_session_active": False},
+                {"is_session_active": {"$exists": False}}
+            ]
+        })
+        
+        deleted_groups = []
+        deleted_count = 0
+        
+        for group in inactive_groups:
+            # Check if group has no active participants
+            active_participants = group.get("active_participants", [])
+            is_session_active = group.get("is_session_active", False)
+            
+            if len(active_participants) == 0 or not is_session_active:
+                group_info = {
+                    "id": str(group["_id"]),
+                    "title": group.get("title", "Unknown"),
+                    "subject": group.get("subject", "Unknown"),
+                    "creator_id": group.get("creator_id", "Unknown"),
+                    "is_session_active": is_session_active,
+                    "active_participants_count": len(active_participants)
+                }
+                
+                result = study_groups_collection.delete_one({"_id": group["_id"]})
+                if result.deleted_count > 0:
+                    deleted_count += 1
+                    deleted_groups.append(group_info)
+                    print(f"Deleted inactive group: {group_info['title']} - ID: {group_info['id']}")
+        
+        return {
+            "success": True,
+            "deleted_count": deleted_count,
+            "deleted_groups": deleted_groups,
+            "message": f"Cleaned up {deleted_count} inactive groups"
+        }
+    except Exception as e:
+        return {"error": str(e), "error_type": type(e).__name__}
+
 @router.post("/api/study-groups/update-activity")
 def update_group_activity(data: dict = Body(...)):
     """Update last activity timestamp for a group"""

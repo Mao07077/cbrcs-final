@@ -250,6 +250,41 @@ const useLearnTogetherStore = create((set, get) => ({
       return { showOnlyActiveStudySessions: newShowOnlyActive };
     });
   },
+
+  cleanupInactiveGroups: async () => {
+    try {
+      set({ isLoading: true, error: null });
+      
+      const response = await apiClient.post('/api/study-groups/cleanup-all-inactive');
+      
+      if (response.data.success) {
+        console.log(`Cleaned up ${response.data.deleted_count} inactive groups:`, response.data.deleted_groups);
+        
+        // Refresh the groups after cleanup
+        await get().fetchGroups(get().showOnlyActiveStudySessions);
+        
+        set({ isLoading: false });
+        return {
+          success: true,
+          deletedCount: response.data.deleted_count,
+          deletedGroups: response.data.deleted_groups,
+          message: response.data.message
+        };
+      } else {
+        throw new Error("Cleanup failed");
+      }
+    } catch (error) {
+      console.error("Cleanup error:", error);
+      set({ 
+        isLoading: false, 
+        error: "Failed to cleanup inactive groups" 
+      });
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  },
 }));
 
 export default useLearnTogetherStore;
