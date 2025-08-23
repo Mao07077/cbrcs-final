@@ -102,7 +102,6 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
   const chatContainerRef = useRef(null);
   const peerConnectionsRef = useRef(new Map()); // Store peer connections
   const remoteVideosRef = useRef(new Map()); // Store remote video refs
-  const connectionStatesRef = useRef(new Map()); // Track connection states to prevent duplicates
 
   // Initialize media on component mount
   useEffect(() => {
@@ -396,21 +395,10 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
     // Handle remote stream
     peerConnection.ontrack = (event) => {
       const [remoteStream] = event.streams;
-      function setRemoteVideo() {
-        const videoElement = remoteVideosRef.current.get(participantId);
-        if (videoElement) {
-          videoElement.srcObject = remoteStream;
-          videoElement.play().catch(() => {});
-          console.log(`Set remote video srcObject for ${participantId}`, remoteStream);
-          if (!remoteStream.active) {
-            console.warn(`⚠️ Remote stream for ${participantId} is inactive. Check camera/mic permissions and network.`);
-          }
-        } else {
-          setTimeout(setRemoteVideo, 100);
-          console.warn(`Remote video element not found for ${participantId}, retrying...`);
-        }
+      const videoElement = remoteVideosRef.current.get(participantId);
+      if (videoElement) {
+        videoElement.srcObject = remoteStream;
       }
-      setRemoteVideo();
     };
 
     // Handle ICE candidates
@@ -427,36 +415,9 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
     // Handle connection state changes
     peerConnection.onconnectionstatechange = () => {
       console.log(`Peer connection to ${participantId} state:`, peerConnection.connectionState);
-      if (peerConnection.connectionState === 'connected') {
-        connectionStatesRef.current.set(participantId, 'connected');
-        console.log(`✅ Connection established with ${participantId}`);
-      } else if (peerConnection.connectionState === 'failed') {
-        console.error(`❌ Connection failed for ${participantId}, fully resetting connection.`);
-        connectionStatesRef.current.set(participantId, 'failed');
-        // Fully close and recreate connection
-        peerConnection.close();
-        peerConnectionsRef.current.delete(participantId);
-        remoteVideosRef.current.delete(participantId);
-        pendingIceCandidates.current.delete(participantId);
-        connectionStatesRef.current.delete(participantId);
-        // Recreate connection and send new offer (async)
-        (async () => {
-          const newPeerConnection = createPeerConnection(participantId);
-          if (newPeerConnection.signalingState === 'stable') {
-            const offer = await newPeerConnection.createOffer();
-            await newPeerConnection.setLocalDescription(offer);
-            if (socketRef.current?.readyState === WebSocket.OPEN) {
-              socketRef.current.send(JSON.stringify({
-                type: "webrtc_offer",
-                target_participant_id: participantId,
-                data: { offer }
-              }));
-            }
-            console.log(`🔄 Recreated peer connection and sent new offer to ${participantId}`);
-          }
-        })();
-      } else if (peerConnection.connectionState === 'disconnected') {
-        connectionStatesRef.current.delete(participantId);
+      if (peerConnection.connectionState === 'failed') {
+        console.log(`Attempting to restart ICE for ${participantId}`);
+        peerConnection.restartIce();
       }
     };
 
@@ -468,40 +429,23 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
     const currentParticipantIds = new Set(participants.map(p => p.id));
     const newParticipantIds = new Set(newParticipants.map(p => p.id));
 
-    // Handle new participants (create offers only if no connection exists)
+    // Handle new participants (create offers)
     for (const participant of newParticipants) {
       if (participant.user_id !== userId && !currentParticipantIds.has(participant.id)) {
-        // Check if we already have a peer connection or are in the process of connecting
-        const existingConnection = peerConnectionsRef.current.get(participant.id);
-        const connectionState = connectionStatesRef.current.get(participant.id);
-        
-        if (!existingConnection && connectionState !== 'connecting') {
-          try {
-            console.log(`🆕 Creating new connection for participant ${participant.id}`);
-            connectionStatesRef.current.set(participant.id, 'connecting'); // Mark as connecting
-            
-            const peerConnection = createPeerConnection(participant.id);
-            // Only send offer if signaling state is stable
-            if (peerConnection.signalingState === 'stable') {
-              const offer = await peerConnection.createOffer();
-              await peerConnection.setLocalDescription(offer);
+        try {
+          const peerConnection = createPeerConnection(participant.id);
+          const offer = await peerConnection.createOffer();
+          await peerConnection.setLocalDescription(offer);
 
-              if (socketRef.current?.readyState === WebSocket.OPEN) {
-                socketRef.current.send(JSON.stringify({
-                  type: "webrtc_offer",
-                  target_participant_id: participant.id,
-                  data: { offer }
-                }));
-              }
-            } else {
-              console.log(`⏳ PeerConnection for ${participant.id} not stable, skipping offer.`);
-            }
-          } catch (error) {
-            console.error("Error creating offer:", error);
-            connectionStatesRef.current.delete(participant.id); // Reset state on error
+          if (socketRef.current?.readyState === WebSocket.OPEN) {
+            socketRef.current.send(JSON.stringify({
+              type: "webrtc_offer",
+              target_participant_id: participant.id,
+              data: { offer }
+            }));
           }
-        } else {
-          console.log(`♻️ Connection already exists or connecting for participant ${participant.id}, skipping offer creation`);
+        } catch (error) {
+          console.error("Error creating offer:", error);
         }
       }
     }
@@ -516,37 +460,46 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         }
         remoteVideosRef.current.delete(participantId);
         pendingIceCandidates.current.delete(participantId); // Clean up queued ICE candidates
-        connectionStatesRef.current.delete(participantId); // Clean up connection state
       }
     }
   }, [participants, userId, createPeerConnection]);
 
   const handleWebRTCSignaling = useCallback(async (data) => {
     const { type, from_participant_id, data: signalData } = data;
+
     try {
       let peerConnection = peerConnectionsRef.current.get(from_participant_id);
-      if (!window._staleAnswerWarnings) window._staleAnswerWarnings = {};
-      const warningKey = `stale_${from_participant_id}`;
+
       if (type === "webrtc_offer") {
         if (!peerConnection) {
           peerConnection = createPeerConnection(from_participant_id);
         }
+
+        // Reset connection if it's in failed state
         if (peerConnection.connectionState === 'failed') {
           peerConnection.close();
           peerConnection = createPeerConnection(from_participant_id);
         }
-        const isPolite = userId < from_participant_id;
+
+        // Implement polite peer pattern to avoid glare condition
+        const isPolite = userId < from_participant_id; // Determine who should be polite based on user ID
+        
         if (peerConnection.signalingState === 'have-local-offer' && !isPolite) {
+          // Impolite peer ignores the offer during glare condition
           console.log(`🤝 Impolite peer ignoring offer from ${from_participant_id} during glare condition`);
           return;
         } else if (peerConnection.signalingState === 'have-local-offer' && isPolite) {
+          // Polite peer accepts the offer and rolls back
           console.log(`🤝 Polite peer rolling back local offer for ${from_participant_id}`);
           await peerConnection.setLocalDescription({type: "rollback"});
         }
+
         try {
           await peerConnection.setRemoteDescription(signalData.offer);
           const answer = await peerConnection.createAnswer();
           await peerConnection.setLocalDescription(answer);
+
+          // Process any queued ICE candidates
           const queuedCandidates = pendingIceCandidates.current.get(from_participant_id) || [];
           for (const candidate of queuedCandidates) {
             try {
@@ -556,6 +509,7 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
             }
           }
           pendingIceCandidates.current.delete(from_participant_id);
+
           if (socketRef.current?.readyState === WebSocket.OPEN) {
             socketRef.current.send(JSON.stringify({
               type: "webrtc_answer",
@@ -563,15 +517,20 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
               data: { answer }
             }));
           }
+          
           console.log(`✅ Successfully processed offer from ${from_participant_id}`);
         } catch (error) {
           console.error(`❌ Error processing offer from ${from_participant_id}:`, error);
+          // Reset connection on error
           peerConnection.close();
           peerConnectionsRef.current.delete(from_participant_id);
         }
       } else if (type === "webrtc_answer" && peerConnection) {
+        // Check the signaling state before setting remote description
         if (peerConnection.signalingState === 'have-local-offer') {
           await peerConnection.setRemoteDescription(signalData.answer);
+          
+          // Process any queued ICE candidates
           const queuedCandidates = pendingIceCandidates.current.get(from_participant_id) || [];
           for (const candidate of queuedCandidates) {
             try {
@@ -581,36 +540,15 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
             }
           }
           pendingIceCandidates.current.delete(from_participant_id);
-          console.log(`✅ Successfully processed answer from ${from_participant_id}`);
-          window._staleAnswerWarnings[warningKey] = 0;
         } else {
-          window._staleAnswerWarnings[warningKey] = (window._staleAnswerWarnings[warningKey] || 0) + 1;
-          console.warn(`⚠️ Cannot set remote answer in signaling state: ${peerConnection.signalingState} for ${from_participant_id}. Connection might have been reset. Warning count: ${window._staleAnswerWarnings[warningKey]}`);
-          // Force connection reset and new offer immediately
-          peerConnection.close();
-          peerConnectionsRef.current.delete(from_participant_id);
-          connectionStatesRef.current.delete(from_participant_id);
-          pendingIceCandidates.current.delete(from_participant_id);
-          window._staleAnswerWarnings[warningKey] = 0;
-          // Create new peer connection and send offer
-          const newPeerConnection = createPeerConnection(from_participant_id);
-          if (newPeerConnection.signalingState === 'stable') {
-            const offer = await newPeerConnection.createOffer();
-            await newPeerConnection.setLocalDescription(offer);
-            if (socketRef.current?.readyState === WebSocket.OPEN) {
-              socketRef.current.send(JSON.stringify({
-                type: "webrtc_offer",
-                target_participant_id: from_participant_id,
-                data: { offer }
-              }));
-            }
-            console.log(`🔄 Forced peer connection reset and sent new offer to ${from_participant_id}`);
-          }
+          console.warn(`Cannot set remote answer in signaling state: ${peerConnection.signalingState}`);
         }
       } else if (type === "webrtc_ice_candidate" && peerConnection) {
+        // Only add ICE candidates if we have a remote description
         if (peerConnection.remoteDescription) {
           await peerConnection.addIceCandidate(signalData.candidate);
         } else {
+          // Queue the ICE candidate for later (limit to 50 to prevent infinite buildup)
           if (!pendingIceCandidates.current.has(from_participant_id)) {
             pendingIceCandidates.current.set(from_participant_id, []);
           }
@@ -860,8 +798,38 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
           if (localVideoRef.current) {
             localVideoRef.current.srcObject = stream;
             console.log("Set local video srcObject");
-            localVideoRef.current.play().catch(() => {});
+            console.log("Video element:", localVideoRef.current);
+            console.log("Video srcObject:", localVideoRef.current.srcObject);
+            console.log("Video readyState:", localVideoRef.current.readyState);
+            console.log("Video paused:", localVideoRef.current.paused);
+            
+            // Force the video to play and ensure immediate visibility
+            localVideoRef.current.play().then(() => {
+              console.log("Video play started successfully");
+              
+              // Force a UI update to ensure the video is visible immediately
+              localVideoRef.current.style.display = 'block';
+              localVideoRef.current.style.opacity = '1';
+              
+            }).catch((playError) => {
+              console.log("Video play promise rejected (this is normal):", playError);
+            });
+
+            // Add event listeners to debug video state
+            localVideoRef.current.onloadedmetadata = () => {
+              console.log("Video metadata loaded - dimensions:", localVideoRef.current.videoWidth, "x", localVideoRef.current.videoHeight);
+            };
+            
+            localVideoRef.current.oncanplay = () => {
+              console.log("Video can play");
+            };
+            
+            localVideoRef.current.onplaying = () => {
+              console.log("Video is playing");
+            };
           } else {
+            console.error("Local video ref is null! Retrying in 100ms...");
+            // Retry after a short delay
             setTimeout(setVideoStream, 100);
           }
         };
@@ -884,6 +852,7 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
             
             const audioSender = senders.find(sender => sender.track?.kind === 'audio');
             if (audioSender) {
+              // Always replace audio track to maintain the connection
               await audioSender.replaceTrack(stream.getAudioTracks()[0]);
               console.log(`Replaced audio track for participant ${participantId}`);
             } else {
@@ -892,22 +861,19 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
               console.log(`Added audio track for participant ${participantId}`);
             }
             
-            // Wait for signaling state to be stable before renegotiation
-            const stable = await waitForStable(peerConnection);
-            if (stable) {
+            // Trigger renegotiation after track changes
+            if (peerConnection.signalingState === 'stable') {
               const offer = await peerConnection.createOffer();
               await peerConnection.setLocalDescription(offer);
               
               if (socketRef.current?.readyState === WebSocket.OPEN) {
                 socketRef.current.send(JSON.stringify({
-                  type: "webrtc_offer",
-                  target_participant_id: participantId,
-                  data: { offer }
+                  type: "offer",
+                  offer: offer,
+                  target: participantId
                 }));
               }
               console.log(`Sent renegotiation offer to participant ${participantId} for video track change`);
-            } else {
-              console.warn(`PeerConnection for ${participantId} not stable after video track change, skipping offer.`);
             }
           } catch (error) {
             console.error(`Error updating video track for participant ${participantId}:`, error);
@@ -941,9 +907,9 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
                   
                   if (socketRef.current?.readyState === WebSocket.OPEN) {
                     socketRef.current.send(JSON.stringify({
-                      type: "webrtc_offer",
-                      target_participant_id: participantId,
-                      data: { offer }
+                      type: "offer",
+                      offer: offer,
+                      target: participantId
                     }));
                   }
                   console.log(`Sent renegotiation offer to participant ${participantId} for video removal`);
@@ -1650,15 +1616,5 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
     </div>
   );
 };
-
-// Helper: Wait for signaling state to become stable
-async function waitForStable(peerConnection, maxWaitMs = 2000) {
-  const start = Date.now();
-  while (peerConnection.signalingState !== 'stable') {
-    if (Date.now() - start > maxWaitMs) return false;
-    await new Promise(res => setTimeout(res, 100));
-  }
-  return true;
-}
 
 export default StudySessionRoom;
