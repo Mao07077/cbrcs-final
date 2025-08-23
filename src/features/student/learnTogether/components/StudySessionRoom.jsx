@@ -102,6 +102,7 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
   const chatContainerRef = useRef(null);
   const peerConnectionsRef = useRef(new Map()); // Store peer connections
   const remoteVideosRef = useRef(new Map()); // Store remote video refs
+  const connectionStatesRef = useRef(new Map()); // Track connection states to prevent duplicates
 
   // Initialize media on component mount
   useEffect(() => {
@@ -415,9 +416,17 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
     // Handle connection state changes
     peerConnection.onconnectionstatechange = () => {
       console.log(`Peer connection to ${participantId} state:`, peerConnection.connectionState);
-      if (peerConnection.connectionState === 'failed') {
-        console.log(`Attempting to restart ICE for ${participantId}`);
+      
+      // Update connection state tracking
+      if (peerConnection.connectionState === 'connected') {
+        connectionStatesRef.current.set(participantId, 'connected');
+        console.log(`✅ Connection established with ${participantId}`);
+      } else if (peerConnection.connectionState === 'failed') {
+        console.log(`❌ Connection failed for ${participantId}, attempting to restart ICE`);
+        connectionStatesRef.current.set(participantId, 'failed');
         peerConnection.restartIce();
+      } else if (peerConnection.connectionState === 'disconnected') {
+        connectionStatesRef.current.delete(participantId);
       }
     };
 
@@ -429,23 +438,35 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
     const currentParticipantIds = new Set(participants.map(p => p.id));
     const newParticipantIds = new Set(newParticipants.map(p => p.id));
 
-    // Handle new participants (create offers)
+    // Handle new participants (create offers only if no connection exists)
     for (const participant of newParticipants) {
       if (participant.user_id !== userId && !currentParticipantIds.has(participant.id)) {
-        try {
-          const peerConnection = createPeerConnection(participant.id);
-          const offer = await peerConnection.createOffer();
-          await peerConnection.setLocalDescription(offer);
+        // Check if we already have a peer connection or are in the process of connecting
+        const existingConnection = peerConnectionsRef.current.get(participant.id);
+        const connectionState = connectionStatesRef.current.get(participant.id);
+        
+        if (!existingConnection && connectionState !== 'connecting') {
+          try {
+            console.log(`🆕 Creating new connection for participant ${participant.id}`);
+            connectionStatesRef.current.set(participant.id, 'connecting'); // Mark as connecting
+            
+            const peerConnection = createPeerConnection(participant.id);
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
 
-          if (socketRef.current?.readyState === WebSocket.OPEN) {
-            socketRef.current.send(JSON.stringify({
-              type: "webrtc_offer",
-              target_participant_id: participant.id,
-              data: { offer }
-            }));
+            if (socketRef.current?.readyState === WebSocket.OPEN) {
+              socketRef.current.send(JSON.stringify({
+                type: "webrtc_offer",
+                target_participant_id: participant.id,
+                data: { offer }
+              }));
+            }
+          } catch (error) {
+            console.error("Error creating offer:", error);
+            connectionStatesRef.current.delete(participant.id); // Reset state on error
           }
-        } catch (error) {
-          console.error("Error creating offer:", error);
+        } else {
+          console.log(`♻️ Connection already exists or connecting for participant ${participant.id}, skipping offer creation`);
         }
       }
     }
@@ -460,6 +481,7 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         }
         remoteVideosRef.current.delete(participantId);
         pendingIceCandidates.current.delete(participantId); // Clean up queued ICE candidates
+        connectionStatesRef.current.delete(participantId); // Clean up connection state
       }
     }
   }, [participants, userId, createPeerConnection]);
@@ -540,8 +562,10 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
             }
           }
           pendingIceCandidates.current.delete(from_participant_id);
+          console.log(`✅ Successfully processed answer from ${from_participant_id}`);
         } else {
-          console.warn(`Cannot set remote answer in signaling state: ${peerConnection.signalingState}`);
+          console.warn(`⚠️ Cannot set remote answer in signaling state: ${peerConnection.signalingState} for ${from_participant_id}. Connection might have been reset.`);
+          // Don't throw an error, just ignore the stale answer
         }
       } else if (type === "webrtc_ice_candidate" && peerConnection) {
         // Only add ICE candidates if we have a remote description
