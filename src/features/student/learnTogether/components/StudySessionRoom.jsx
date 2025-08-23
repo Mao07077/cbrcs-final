@@ -399,6 +399,10 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
       const videoElement = remoteVideosRef.current.get(participantId);
       if (videoElement) {
         videoElement.srcObject = remoteStream;
+        videoElement.play().catch(() => {});
+        console.log(`Set remote video srcObject for ${participantId}`, remoteStream);
+      } else {
+        console.warn(`Remote video element not found for ${participantId}`);
       }
     };
 
@@ -830,38 +834,8 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
           if (localVideoRef.current) {
             localVideoRef.current.srcObject = stream;
             console.log("Set local video srcObject");
-            console.log("Video element:", localVideoRef.current);
-            console.log("Video srcObject:", localVideoRef.current.srcObject);
-            console.log("Video readyState:", localVideoRef.current.readyState);
-            console.log("Video paused:", localVideoRef.current.paused);
-            
-            // Force the video to play and ensure immediate visibility
-            localVideoRef.current.play().then(() => {
-              console.log("Video play started successfully");
-              
-              // Force a UI update to ensure the video is visible immediately
-              localVideoRef.current.style.display = 'block';
-              localVideoRef.current.style.opacity = '1';
-              
-            }).catch((playError) => {
-              console.log("Video play promise rejected (this is normal):", playError);
-            });
-
-            // Add event listeners to debug video state
-            localVideoRef.current.onloadedmetadata = () => {
-              console.log("Video metadata loaded - dimensions:", localVideoRef.current.videoWidth, "x", localVideoRef.current.videoHeight);
-            };
-            
-            localVideoRef.current.oncanplay = () => {
-              console.log("Video can play");
-            };
-            
-            localVideoRef.current.onplaying = () => {
-              console.log("Video is playing");
-            };
+            localVideoRef.current.play().catch(() => {});
           } else {
-            console.error("Local video ref is null! Retrying in 100ms...");
-            // Retry after a short delay
             setTimeout(setVideoStream, 100);
           }
         };
@@ -884,7 +858,6 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
             
             const audioSender = senders.find(sender => sender.track?.kind === 'audio');
             if (audioSender) {
-              // Always replace audio track to maintain the connection
               await audioSender.replaceTrack(stream.getAudioTracks()[0]);
               console.log(`Replaced audio track for participant ${participantId}`);
             } else {
@@ -893,19 +866,22 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
               console.log(`Added audio track for participant ${participantId}`);
             }
             
-            // Trigger renegotiation after track changes
-            if (peerConnection.signalingState === 'stable') {
+            // Wait for signaling state to be stable before renegotiation
+            const stable = await waitForStable(peerConnection);
+            if (stable) {
               const offer = await peerConnection.createOffer();
               await peerConnection.setLocalDescription(offer);
               
               if (socketRef.current?.readyState === WebSocket.OPEN) {
                 socketRef.current.send(JSON.stringify({
-                  type: "offer",
-                  offer: offer,
-                  target: participantId
+                  type: "webrtc_offer",
+                  target_participant_id: participantId,
+                  data: { offer }
                 }));
               }
               console.log(`Sent renegotiation offer to participant ${participantId} for video track change`);
+            } else {
+              console.warn(`PeerConnection for ${participantId} not stable after video track change, skipping offer.`);
             }
           } catch (error) {
             console.error(`Error updating video track for participant ${participantId}:`, error);
@@ -939,9 +915,9 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
                   
                   if (socketRef.current?.readyState === WebSocket.OPEN) {
                     socketRef.current.send(JSON.stringify({
-                      type: "offer",
-                      offer: offer,
-                      target: participantId
+                      type: "webrtc_offer",
+                      target_participant_id: participantId,
+                      data: { offer }
                     }));
                   }
                   console.log(`Sent renegotiation offer to participant ${participantId} for video removal`);
