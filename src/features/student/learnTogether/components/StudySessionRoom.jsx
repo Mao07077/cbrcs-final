@@ -103,6 +103,11 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
   const peerConnectionsRef = useRef(new Map()); // Store peer connections
   const remoteVideosRef = useRef(new Map()); // Store remote video refs
 
+  // --- Diagnostic Logging Helpers ---
+  const logSignal = (msg, data) => console.log(`[SIGNAL] ${msg}`, data);
+  const logStream = (msg, data) => console.log(`[STREAM] ${msg}`, data);
+  const logPeer = (msg, data) => console.log(`[PEER] ${msg}`, data);
+
   // Initialize media on component mount
   useEffect(() => {
     const initializeMedia = async () => {
@@ -495,9 +500,14 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         }
 
         try {
+          logSignal(`Received signaling message: ${data.type}`, data);
+          logSignal('Processing offer', signalData.offer);
           await peerConnection.setRemoteDescription(signalData.offer);
+          logSignal('Set remote description (offer)', signalData.offer);
           const answer = await peerConnection.createAnswer();
           await peerConnection.setLocalDescription(answer);
+          logSignal('Created and set local description (answer)', answer);
+          logSignal('Sending answer', answer);
 
           // Process any queued ICE candidates
           const queuedCandidates = pendingIceCandidates.current.get(from_participant_id) || [];
@@ -529,6 +539,8 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         // Check the signaling state before setting remote description
         if (peerConnection.signalingState === 'have-local-offer') {
           await peerConnection.setRemoteDescription(signalData.answer);
+          logSignal('Processing answer', signalData.answer);
+          logSignal('Set remote description (answer)', signalData.answer);
           
           // Process any queued ICE candidates
           const queuedCandidates = pendingIceCandidates.current.get(from_participant_id) || [];
@@ -547,6 +559,8 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         // Only add ICE candidates if we have a remote description
         if (peerConnection.remoteDescription) {
           await peerConnection.addIceCandidate(signalData.candidate);
+          logSignal('Processing ICE candidate', signalData.candidate);
+          logSignal('Added ICE candidate', signalData.candidate);
         } else {
           // Queue the ICE candidate for later (limit to 50 to prevent infinite buildup)
           if (!pendingIceCandidates.current.has(from_participant_id)) {
@@ -555,7 +569,7 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
           const candidateQueue = pendingIceCandidates.current.get(from_participant_id);
           if (candidateQueue.length < 50) {
             candidateQueue.push(signalData.candidate);
-            console.log(`Queued ICE candidate for ${from_participant_id} (total: ${candidateQueue.length})`);
+            logSignal(`Queued ICE candidate for ${from_participant_id} (total: ${candidateQueue.length})`, signalData.candidate);
           } else {
             console.warn(`⚠️ ICE candidate queue full for ${from_participant_id}, dropping candidate`);
           }
