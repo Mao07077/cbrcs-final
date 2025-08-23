@@ -402,8 +402,10 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
           videoElement.srcObject = remoteStream;
           videoElement.play().catch(() => {});
           console.log(`Set remote video srcObject for ${participantId}`, remoteStream);
+          if (!remoteStream.active) {
+            console.warn(`⚠️ Remote stream for ${participantId} is inactive. Check camera/mic permissions and network.`);
+          }
         } else {
-          // Retry after 100ms if not found
           setTimeout(setRemoteVideo, 100);
           console.warn(`Remote video element not found for ${participantId}, retrying...`);
         }
@@ -425,15 +427,34 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
     // Handle connection state changes
     peerConnection.onconnectionstatechange = () => {
       console.log(`Peer connection to ${participantId} state:`, peerConnection.connectionState);
-      
-      // Update connection state tracking
       if (peerConnection.connectionState === 'connected') {
         connectionStatesRef.current.set(participantId, 'connected');
         console.log(`✅ Connection established with ${participantId}`);
       } else if (peerConnection.connectionState === 'failed') {
-        console.log(`❌ Connection failed for ${participantId}, attempting to restart ICE`);
+        console.error(`❌ Connection failed for ${participantId}, fully resetting connection.`);
         connectionStatesRef.current.set(participantId, 'failed');
-        peerConnection.restartIce();
+        // Fully close and recreate connection
+        peerConnection.close();
+        peerConnectionsRef.current.delete(participantId);
+        remoteVideosRef.current.delete(participantId);
+        pendingIceCandidates.current.delete(participantId);
+        connectionStatesRef.current.delete(participantId);
+        // Recreate connection and send new offer (async)
+        (async () => {
+          const newPeerConnection = createPeerConnection(participantId);
+          if (newPeerConnection.signalingState === 'stable') {
+            const offer = await newPeerConnection.createOffer();
+            await newPeerConnection.setLocalDescription(offer);
+            if (socketRef.current?.readyState === WebSocket.OPEN) {
+              socketRef.current.send(JSON.stringify({
+                type: "webrtc_offer",
+                target_participant_id: participantId,
+                data: { offer }
+              }));
+            }
+            console.log(`🔄 Recreated peer connection and sent new offer to ${participantId}`);
+          }
+        })();
       } else if (peerConnection.connectionState === 'disconnected') {
         connectionStatesRef.current.delete(participantId);
       }
