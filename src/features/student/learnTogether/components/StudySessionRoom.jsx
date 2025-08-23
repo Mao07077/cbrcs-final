@@ -1625,4 +1625,14 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
   );
 };
 
+// Helper: Wait for signaling state to become stable
+async function waitForStable(peerConnection, maxWaitMs = 2000) {
+  const start = Date.now();
+  while (peerConnection.signalingState !== 'stable') {
+    if (Date.now() - start > maxWaitMs) return false;
+    await new Promise(res => setTimeout(res, 100));
+  }
+  return true;
+}
+
 export default StudySessionRoom;
