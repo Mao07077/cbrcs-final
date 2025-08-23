@@ -396,14 +396,19 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
     // Handle remote stream
     peerConnection.ontrack = (event) => {
       const [remoteStream] = event.streams;
-      const videoElement = remoteVideosRef.current.get(participantId);
-      if (videoElement) {
-        videoElement.srcObject = remoteStream;
-        videoElement.play().catch(() => {});
-        console.log(`Set remote video srcObject for ${participantId}`, remoteStream);
-      } else {
-        console.warn(`Remote video element not found for ${participantId}`);
+      function setRemoteVideo() {
+        const videoElement = remoteVideosRef.current.get(participantId);
+        if (videoElement) {
+          videoElement.srcObject = remoteStream;
+          videoElement.play().catch(() => {});
+          console.log(`Set remote video srcObject for ${participantId}`, remoteStream);
+        } else {
+          // Retry after 100ms if not found
+          setTimeout(setRemoteVideo, 100);
+          console.warn(`Remote video element not found for ${participantId}, retrying...`);
+        }
       }
+      setRemoteVideo();
     };
 
     // Handle ICE candidates
