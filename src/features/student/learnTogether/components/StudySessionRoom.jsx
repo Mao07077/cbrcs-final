@@ -495,7 +495,6 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
     const { type, from_participant_id, data: signalData } = data;
     try {
       let peerConnection = peerConnectionsRef.current.get(from_participant_id);
-      // Track repeated stale answer warnings
       if (!window._staleAnswerWarnings) window._staleAnswerWarnings = {};
       const warningKey = `stale_${from_participant_id}`;
       if (type === "webrtc_offer") {
@@ -506,7 +505,6 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
           peerConnection.close();
           peerConnection = createPeerConnection(from_participant_id);
         }
-        // Polite peer pattern
         const isPolite = userId < from_participant_id;
         if (peerConnection.signalingState === 'have-local-offer' && !isPolite) {
           console.log(`🤝 Impolite peer ignoring offer from ${from_participant_id} during glare condition`);
@@ -519,7 +517,6 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
           await peerConnection.setRemoteDescription(signalData.offer);
           const answer = await peerConnection.createAnswer();
           await peerConnection.setLocalDescription(answer);
-          // Process queued ICE candidates
           const queuedCandidates = pendingIceCandidates.current.get(from_participant_id) || [];
           for (const candidate of queuedCandidates) {
             try {
@@ -559,14 +556,25 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         } else {
           window._staleAnswerWarnings[warningKey] = (window._staleAnswerWarnings[warningKey] || 0) + 1;
           console.warn(`⚠️ Cannot set remote answer in signaling state: ${peerConnection.signalingState} for ${from_participant_id}. Connection might have been reset. Warning count: ${window._staleAnswerWarnings[warningKey]}`);
-          // If repeated, reset connection
-          if (window._staleAnswerWarnings[warningKey] > 2) {
-            console.warn(`🔄 Forcing peer connection reset for ${from_participant_id} due to repeated stale answer warnings.`);
-            peerConnection.close();
-            peerConnectionsRef.current.delete(from_participant_id);
-            connectionStatesRef.current.delete(from_participant_id);
-            pendingIceCandidates.current.delete(from_participant_id);
-            window._staleAnswerWarnings[warningKey] = 0;
+          // Force connection reset and new offer immediately
+          peerConnection.close();
+          peerConnectionsRef.current.delete(from_participant_id);
+          connectionStatesRef.current.delete(from_participant_id);
+          pendingIceCandidates.current.delete(from_participant_id);
+          window._staleAnswerWarnings[warningKey] = 0;
+          // Create new peer connection and send offer
+          const newPeerConnection = createPeerConnection(from_participant_id);
+          if (newPeerConnection.signalingState === 'stable') {
+            const offer = await newPeerConnection.createOffer();
+            await newPeerConnection.setLocalDescription(offer);
+            if (socketRef.current?.readyState === WebSocket.OPEN) {
+              socketRef.current.send(JSON.stringify({
+                type: "webrtc_offer",
+                target_participant_id: from_participant_id,
+                data: { offer }
+              }));
+            }
+            console.log(`🔄 Forced peer connection reset and sent new offer to ${from_participant_id}`);
           }
         }
       } else if (type === "webrtc_ice_candidate" && peerConnection) {
