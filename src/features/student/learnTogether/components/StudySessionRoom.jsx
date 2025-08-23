@@ -536,24 +536,24 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
           peerConnectionsRef.current.delete(from_participant_id);
         }
       } else if (type === "webrtc_answer" && peerConnection) {
-        // Check the signaling state before setting remote description
+        // Only process answer if signalingState is 'have-local-offer'
         if (peerConnection.signalingState === 'have-local-offer') {
           await peerConnection.setRemoteDescription(signalData.answer);
-          logSignal('Processing answer', signalData.answer);
           logSignal('Set remote description (answer)', signalData.answer);
-          
           // Process any queued ICE candidates
           const queuedCandidates = pendingIceCandidates.current.get(from_participant_id) || [];
           for (const candidate of queuedCandidates) {
             try {
               await peerConnection.addIceCandidate(candidate);
             } catch (candidateError) {
-              console.warn('Failed to add queued ICE candidate:', candidateError);
+              logSignal('Failed to add queued ICE candidate', candidateError);
             }
           }
           pendingIceCandidates.current.delete(from_participant_id);
         } else {
-          console.warn(`Cannot set remote answer in signaling state: ${peerConnection.signalingState}`);
+          logSignal('Ignored remote answer: signaling state not have-local-offer', peerConnection.signalingState);
+          // Clean up any queued ICE candidates for this peer
+          pendingIceCandidates.current.delete(from_participant_id);
         }
       } else if (type === "webrtc_ice_candidate" && peerConnection) {
         // Only add ICE candidates if we have a remote description
