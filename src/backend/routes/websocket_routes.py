@@ -295,6 +295,22 @@ async def study_group_websocket(websocket: WebSocket, group_id: str):
                         except Exception as e:
                             logger.error(f"Failed to send hand raise update: {e}")
                 
+                elif msg_type == "speaking_update":
+                    # Broadcast speaking status to all participants
+                    info = student_info[room_key][websocket]
+                    is_speaking = msg.get("is_speaking", False)
+                    message = {
+                        "type": "speaking_update",
+                        "from_user_id": info["user_id"],
+                        "is_speaking": is_speaking,
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+                    for ws in rooms[room_key]:
+                        try:
+                            await ws.send_text(json.dumps(message))
+                        except Exception as e:
+                            logger.error(f"Failed to send speaking update: {e}")
+                
                 else:
                     logger.warning(f"Unknown message type: {msg_type}")
                     
