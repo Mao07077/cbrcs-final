@@ -481,8 +481,20 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
           peerConnection = createPeerConnection(from_participant_id);
         }
 
-        // Handle different signaling states more gracefully
-        if (peerConnection.signalingState === 'stable') {
+        // Implement polite peer pattern to avoid glare condition
+        const isPolite = userId < from_participant_id; // Determine who should be polite based on user ID
+        
+        if (peerConnection.signalingState === 'have-local-offer' && !isPolite) {
+          // Impolite peer ignores the offer during glare condition
+          console.log(`🤝 Impolite peer ignoring offer from ${from_participant_id} during glare condition`);
+          return;
+        } else if (peerConnection.signalingState === 'have-local-offer' && isPolite) {
+          // Polite peer accepts the offer and rolls back
+          console.log(`🤝 Polite peer rolling back local offer for ${from_participant_id}`);
+          await peerConnection.setLocalDescription({type: "rollback"});
+        }
+
+        try {
           await peerConnection.setRemoteDescription(signalData.offer);
           const answer = await peerConnection.createAnswer();
           await peerConnection.setLocalDescription(answer);
@@ -505,27 +517,13 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
               data: { answer }
             }));
           }
-        } else if (peerConnection.signalingState === 'have-local-offer') {
-          // If we have a local offer, ignore this remote offer to avoid conflict
-          console.log(`Ignoring remote offer due to local offer in progress for participant ${from_participant_id}`);
-        } else {
-          console.warn(`Cannot set remote offer in signaling state: ${peerConnection.signalingState}. Resetting connection.`);
-          // Reset the connection to stable state
-          peerConnection.close();
-          peerConnection = createPeerConnection(from_participant_id);
           
-          // Try again with the new connection
-          await peerConnection.setRemoteDescription(signalData.offer);
-          const answer = await peerConnection.createAnswer();
-          await peerConnection.setLocalDescription(answer);
-
-          if (socketRef.current?.readyState === WebSocket.OPEN) {
-            socketRef.current.send(JSON.stringify({
-              type: "webrtc_answer",
-              target_participant_id: from_participant_id,
-              data: { answer }
-            }));
-          }
+          console.log(`✅ Successfully processed offer from ${from_participant_id}`);
+        } catch (error) {
+          console.error(`❌ Error processing offer from ${from_participant_id}:`, error);
+          // Reset connection on error
+          peerConnection.close();
+          peerConnectionsRef.current.delete(from_participant_id);
         }
       } else if (type === "webrtc_answer" && peerConnection) {
         // Check the signaling state before setting remote description
@@ -550,12 +548,17 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         if (peerConnection.remoteDescription) {
           await peerConnection.addIceCandidate(signalData.candidate);
         } else {
-          // Queue the ICE candidate for later
+          // Queue the ICE candidate for later (limit to 50 to prevent infinite buildup)
           if (!pendingIceCandidates.current.has(from_participant_id)) {
             pendingIceCandidates.current.set(from_participant_id, []);
           }
-          pendingIceCandidates.current.get(from_participant_id).push(signalData.candidate);
-          console.log(`Queued ICE candidate for ${from_participant_id} (total: ${pendingIceCandidates.current.get(from_participant_id).length})`);
+          const candidateQueue = pendingIceCandidates.current.get(from_participant_id);
+          if (candidateQueue.length < 50) {
+            candidateQueue.push(signalData.candidate);
+            console.log(`Queued ICE candidate for ${from_participant_id} (total: ${candidateQueue.length})`);
+          } else {
+            console.warn(`⚠️ ICE candidate queue full for ${from_participant_id}, dropping candidate`);
+          }
         }
       }
     } catch (error) {
