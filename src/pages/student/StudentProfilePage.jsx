@@ -97,9 +97,14 @@ const StudentProfilePage = () => {
       const formData = new FormData();
       formData.append("profileImage", file);
       try {
-        const response = await profileService.updateProfile(userData.id_number, formData);
-        if (response?.profileImageUrl) {
-          setProfileImage(response.profileImageUrl);
+        // Use fetch directly for image upload
+        const response = await fetch(`/api/profile/${userData.id_number}/image`, {
+          method: "PUT",
+          body: formData,
+        });
+        const result = await response.json();
+        if (result?.profileImageUrl) {
+          setProfileImage(result.profileImageUrl);
         }
       } catch (err) {
         setError("Failed to upload image");
