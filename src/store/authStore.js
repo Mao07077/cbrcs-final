@@ -24,7 +24,8 @@ const useAuthStore = create((set, get) => ({
           firstname: userData.firstname,
           lastname: userData.lastname,
           hoursActivity: userData.hoursActivity,
-          surveyCompleted: userData.surveyCompleted
+          surveyCompleted: userData.surveyCompleted,
+          profileImageUrl: userData.profileImageUrl || ""
         };
 
         // Store in localStorage
