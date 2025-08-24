@@ -67,6 +67,8 @@ const StudentProfilePage = () => {
         // Fetch profile data
         const profileData = await profileService.getProfile(userData.id_number);
         setProfile(profileData);
+        // Always set profileImage from backend
+        setProfileImage(profileData.profileImageUrl || null);
 
         // Fetch top 3 study habits
         const habitsData = await profileService.getRecommendedPages(
