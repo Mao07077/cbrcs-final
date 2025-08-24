@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Body, Path
 from models import ProfileData, UserSettings
-from database import users_collection, request_collection, modules_collection, scores_collection, pre_test_collection, post_test_collection
+from database import users_collection, request_collection
 from bson import ObjectId
 from datetime import datetime
 from typing import Dict, List
@@ -23,27 +23,57 @@ def update_profile(id_number: str, data: dict = Body(...)):
 @router.get("/api/profile/{id_number}", response_model=ProfileData)
 def get_profile(id_number: str):
     user = users_collection.find_one({"id_number": id_number})
-    if user:
-        from backend.utils import get_dashboard_metrics
-        metrics = get_dashboard_metrics(id_number, users_collection, modules_collection, scores_collection, pre_test_collection, post_test_collection)
-        study_hours = metrics.get("studyHours", 0)
-        weekly_progress = metrics.get("weeklyProgress", [])
-        total_this_week = sum(day["hours"] for day in weekly_progress)
-        active_days = sum(1 for day in weekly_progress if day["hours"] >= 1)
-        peak_day = max(weekly_progress, key=lambda d: d["hours"], default={"day": "", "hours": 0})
-        return {
-            "firstname": user.get("firstname", ""),
-            "lastname": user.get("lastname", ""),
-            "id_number": user.get("id_number", ""),
-            "program": user.get("program", ""),
-            "hoursActivity": study_hours,
-            "dailyActivity": weekly_progress,
-            "totalThisWeek": total_this_week,
-            "activeDays": active_days,
-            "peakDay": peak_day["day"],
-            "peakHours": peak_day["hours"],
-        }
-    raise HTTPException(status_code=404, detail="User not found")
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Aggregate daily study activity from scores and flashcard time
+    from database import scores_collection, modules_collection
+    import datetime
+    scores = list(scores_collection.find({"user_id": id_number}))
+    daily_activity = {}
+    flashcard_time = user.get("flashcard_time", 0)
+    for score in scores:
+        date_taken = score.get("date_taken")
+        time_spent = min(score.get("time_spent", 0), 600)  # max 10 mins per test
+        if date_taken:
+            day = date_taken.split("T")[0]
+            daily_activity.setdefault(day, 0)
+            daily_activity[day] += time_spent / 60
+    # Add flashcard time to the most recent day
+    if daily_activity:
+        latest_day = max(daily_activity.keys())
+        daily_activity[latest_day] += flashcard_time / 60
+
+    # Prepare graph data: last 7 days
+    today = datetime.date.today()
+    graph_data = []
+    total_week = 0
+    peak_hour = 0
+    peak_day = ""
+    active_days = 0
+    for i in range(6, -1, -1):
+        day = (today - datetime.timedelta(days=i)).isoformat()
+        hours = round(daily_activity.get(day, 0), 2)
+        graph_data.append({"day": day, "hours": hours})
+        total_week += hours
+        if hours > peak_hour:
+            peak_hour = hours
+            peak_day = day
+        if hours >= 1:
+            active_days += 1
+
+    return {
+        "firstname": user.get("firstname", ""),
+        "lastname": user.get("lastname", ""),
+        "id_number": user.get("id_number", ""),
+        "program": user.get("program", ""),
+        "hoursActivity": user.get("hoursActivity", 0),
+        "dailyActivity": graph_data,
+        "totalWeek": round(total_week, 2),
+        "peakHour": peak_hour,
+        "peakDay": peak_day,
+        "activeDays": active_days
+    }
 
 @router.get("/students/{id_number}/recommended-pages", response_model=Dict[str, List[str]])
 def get_recommended_pages(id_number: str):

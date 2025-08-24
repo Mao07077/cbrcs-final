@@ -25,12 +25,12 @@ const StudentProfilePage = () => {
   const { userData } = useAuthStore();
 
   const [profile, setProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [profileImage, setProfileImage] = useState(null);
-  const [top3Habits, setTop3Habits] = useState([]);
-
-  const [dailyData, setDailyData] = useState([]);
+            <div className="text-center">
+              <div className="text-2xl font-bold text-primary">
+                {dailyData.length > 0 ? ((dailyData.reduce((acc, day) => acc + day.hours, 0) / dailyData.length).toFixed(1)) : "0"}
+              </div>
+              <div className="text-sm text-gray-600">Avg Hours/Day</div>
+            </div>
 
   const habitDescriptions = {
     "Study with Friends": "Collaborate and learn together with peers",
@@ -199,72 +199,45 @@ const StudentProfilePage = () => {
               </button>
             </div>
 
-              {/* Profile Details */}
-              <div className="flex-1">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Full Name
-                    </label>
-                    <div className="text-lg font-semibold text-gray-900">
-                      {profile?.firstname} {profile?.lastname}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      ID Number
-                    </label>
-                    <div className="text-lg font-semibold text-gray-900">
-                      {profile?.id_number}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Program
-                    </label>
-                    <div className="text-lg font-semibold text-gray-900">
-                      {profile?.program}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Study Hours
-                    </label>
-                    <div className="text-lg font-semibold text-gray-900">
-                      {profile?.hoursActivity || 0} hours
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Total This Week
-                    </label>
-                    <div className="text-lg font-semibold text-gray-900">
-                      {profile?.totalThisWeek || 0} hours
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Active Days
-                    </label>
-                    <div className="text-lg font-semibold text-gray-900">
-                      {profile?.activeDays || 0}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Peak Study Day
-                    </label>
-                    <div className="text-lg font-semibold text-gray-900">
-                      {profile?.peakDay || "-"} ({profile?.peakHours || 0} hours)
-                    </div>
+            {/* Profile Details */}
+            <div className="flex-1">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Full Name
+                  </label>
+                  <div className="text-lg font-semibold text-gray-900">
+                    {profile?.firstname} {profile?.lastname}
                   </div>
                 </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    ID Number
+                  </label>
+                  <div className="text-lg font-semibold text-gray-900">
+                    {profile?.id_number}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Program
+                  </label>
+                  <div className="text-lg font-semibold text-gray-900">
+                    {profile?.program}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Study Hours
+                  </label>
+                  <div className="text-lg font-semibold text-gray-900">
+                    {profile?.hoursActivity || 0} hours
+                  </div>
+                </div>
+              </div>
 
               {/* Academic Period */}
               <div className="mt-6 p-4 bg-gray-50 rounded-lg">
@@ -374,39 +347,12 @@ const StudentProfilePage = () => {
           </div>
 
           <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-primary">
-                {Math.round(
-                  (dailyData.reduce((acc, day) => acc + day.hours, 0) /
-                    dailyData.length) *
-                    10
-                ) / 10}
-              </div>
-              <div className="text-sm text-gray-600">Avg Hours/Day</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-primary">
-                {Math.max(...dailyData.map((day) => day.hours))}
-              </div>
-              <div className="text-sm text-gray-600">Peak Hours</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-primary">
-                {dailyData.reduce((acc, day) => acc + day.hours, 0)}
-              </div>
-              <div className="text-sm text-gray-600">Total This Week</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-primary">
-                {dailyData.filter((day) => day.hours > 0).length}
-              </div>
-              <div className="text-sm text-gray-600">Active Days</div>
-            </div>
+            {/* Stats already shown above, remove duplicate */}
           </div>
         </div>
       </div>
     </div>
   );
-};
+}
 
 export default StudentProfilePage;
