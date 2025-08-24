@@ -166,13 +166,13 @@ const StudentProfilePage = () => {
                 <div className="w-32 h-32 bg-gray-200 rounded-full overflow-hidden border-4 border-gray-300">
                   {profileImage ? (
                     <img
-                      src={profileImage}
+                      src={profileImage.startsWith('/static/picture/') ? `https://cbrcs-final.onrender.com${profileImage}` : profileImage}
                       alt="Profile"
                       className="w-full h-full object-cover"
                     />
                   ) : profile?.profileImageUrl ? (
                     <img
-                      src={profile.profileImageUrl}
+                      src={profile.profileImageUrl.startsWith('/static/picture/') ? `https://cbrcs-final.onrender.com${profile.profileImageUrl}` : profile.profileImageUrl}
                       alt="Profile"
                       className="w-full h-full object-cover"
                     />
