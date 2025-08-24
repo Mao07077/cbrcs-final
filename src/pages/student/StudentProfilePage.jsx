@@ -199,45 +199,72 @@ const StudentProfilePage = () => {
               </button>
             </div>
 
-            {/* Profile Details */}
-            <div className="flex-1">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Full Name
-                  </label>
-                  <div className="text-lg font-semibold text-gray-900">
-                    {profile?.firstname} {profile?.lastname}
+              {/* Profile Details */}
+              <div className="flex-1">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Full Name
+                    </label>
+                    <div className="text-lg font-semibold text-gray-900">
+                      {profile?.firstname} {profile?.lastname}
+                    </div>
                   </div>
-                </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    ID Number
-                  </label>
-                  <div className="text-lg font-semibold text-gray-900">
-                    {profile?.id_number}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      ID Number
+                    </label>
+                    <div className="text-lg font-semibold text-gray-900">
+                      {profile?.id_number}
+                    </div>
                   </div>
-                </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Program
-                  </label>
-                  <div className="text-lg font-semibold text-gray-900">
-                    {profile?.program}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Program
+                    </label>
+                    <div className="text-lg font-semibold text-gray-900">
+                      {profile?.program}
+                    </div>
                   </div>
-                </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Study Hours
-                  </label>
-                  <div className="text-lg font-semibold text-gray-900">
-                    {profile?.hoursActivity || 0} hours
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Study Hours
+                    </label>
+                    <div className="text-lg font-semibold text-gray-900">
+                      {profile?.hoursActivity || 0} hours
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Total This Week
+                    </label>
+                    <div className="text-lg font-semibold text-gray-900">
+                      {profile?.totalThisWeek || 0} hours
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Active Days
+                    </label>
+                    <div className="text-lg font-semibold text-gray-900">
+                      {profile?.activeDays || 0}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Peak Study Day
+                    </label>
+                    <div className="text-lg font-semibold text-gray-900">
+                      {profile?.peakDay || "-"} ({profile?.peakHours || 0} hours)
+                    </div>
                   </div>
                 </div>
-              </div>
 
               {/* Academic Period */}
               <div className="mt-6 p-4 bg-gray-50 rounded-lg">
