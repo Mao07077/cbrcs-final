@@ -1,3 +1,4 @@
+import io
 import cloudinary
 import cloudinary.uploader
 
@@ -23,8 +24,9 @@ async def upload_profile_image(id_number: str, profileImage: UploadFile = File(.
     user = users_collection.find_one({"id_number": id_number})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    # Upload to Cloudinary
-    result = cloudinary.uploader.upload(await profileImage.read(), folder="profile_pics")
+    # Read file bytes and upload to Cloudinary as a file-like object
+    file_bytes = await profileImage.read()
+    result = cloudinary.uploader.upload(io.BytesIO(file_bytes), folder="profile_pics")
     image_url = result["secure_url"]
     users_collection.update_one({"id_number": id_number}, {"$set": {"profileImageUrl": image_url}})
     return JSONResponse({"success": True, "profileImageUrl": image_url})
