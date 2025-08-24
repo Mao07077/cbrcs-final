@@ -106,7 +106,10 @@ const StudentProfilePage = () => {
         });
         const result = await response.json();
         if (result?.profileImageUrl) {
-          setProfileImage(result.profileImageUrl);
+          // After upload, fetch the latest profile for this student
+          const latestProfile = await profileService.getProfile(userData.id_number);
+          setProfile(latestProfile);
+          setProfileImage(latestProfile.profileImageUrl || null);
         }
       } catch (err) {
         setError("Failed to upload image");
@@ -168,13 +171,7 @@ const StudentProfilePage = () => {
                 <div className="w-32 h-32 bg-gray-200 rounded-full overflow-hidden border-4 border-gray-300">
                   {profileImage ? (
                     <img
-                      src={profileImage.startsWith('/static/picture/') ? `https://cbrcs-final.onrender.com${profileImage}` : profileImage}
-                      alt="Profile"
-                      className="w-full h-full object-cover"
-                    />
-                  ) : profile?.profileImageUrl ? (
-                    <img
-                      src={profile.profileImageUrl.startsWith('/static/picture/') ? `https://cbrcs-final.onrender.com${profile.profileImageUrl}` : profile.profileImageUrl}
+                      src={profileImage}
                       alt="Profile"
                       className="w-full h-full object-cover"
                     />
