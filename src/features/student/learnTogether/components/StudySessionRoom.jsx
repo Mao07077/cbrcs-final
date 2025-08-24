@@ -280,6 +280,9 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
     };
   }, [sessionInfo?.group?.id]);
 
+  // Track last speaking state for each user to avoid console spam
+  const lastSpeakingStateRef = useRef(new Map());
+
   // Handle WebSocket messages
   const handleWebSocketMessage = useCallback((data) => {
     switch (data.type) {
@@ -349,10 +352,13 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
         console.log(`Participant ${data.from_user_id} status: muted=${data.muted}, camera_off=${data.camera_off}, screen_sharing=${data.is_screen_sharing}`);
         break;
         
-      case "speaking_update":
-        // Handle speaking status updates
-        console.log("Speaking update received:", data);
-        
+      case "speaking_update": {
+        // Only log when speaking state changes
+        const lastState = lastSpeakingStateRef.current.get(data.from_user_id);
+        if (lastState !== data.is_speaking) {
+          console.log("Speaking update received:", data);
+          lastSpeakingStateRef.current.set(data.from_user_id, data.is_speaking);
+        }
         if (data.is_speaking) {
           setSpeakingParticipants(prev => new Set([...prev, data.from_user_id]));
         } else {
@@ -363,6 +369,7 @@ const StudySessionRoom = ({ sessionInfo, userId, userName, onLeaveSession }) => 
           });
         }
         break;
+      }
         
       case "webrtc_offer":
       case "webrtc_answer":
