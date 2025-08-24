@@ -1,22 +1,6 @@
 from fastapi import APIRouter, HTTPException, Body, Path, UploadFile, File
 import os
 from fastapi.responses import JSONResponse
-@router.put("/api/profile/{id_number}/image")
-async def upload_profile_image(id_number: str, profileImage: UploadFile = File(...)):
-    user = users_collection.find_one({"id_number": id_number})
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    # Save image to a folder (e.g., backend/picture)
-    folder = os.path.join(os.path.dirname(__file__), "../picture")
-    os.makedirs(folder, exist_ok=True)
-    filename = f"{id_number}_{profileImage.filename}"
-    file_path = os.path.join(folder, filename)
-    with open(file_path, "wb") as f:
-        f.write(await profileImage.read())
-    # Update user profile image URL (relative path)
-    image_url = f"/static/picture/{filename}"
-    users_collection.update_one({"id_number": id_number}, {"$set": {"profileImageUrl": image_url}})
-    return JSONResponse({"success": True, "profileImageUrl": image_url})
 from models import ProfileData, UserSettings
 from database import users_collection, request_collection
 from bson import ObjectId
