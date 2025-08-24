@@ -82,6 +82,8 @@ const StudentProfilePage = () => {
         } else {
           setDailyData([]);
         }
+            // Debug log
+            console.log('Fetched profile for:', userData.id_number, 'Image URL:', profileData.profileImageUrl);
       } catch (err) {
         console.error("Profile fetch error:", err);
         setError(err.message || "Failed to load profile data");
@@ -110,6 +112,9 @@ const StudentProfilePage = () => {
           const latestProfile = await profileService.getProfile(userData.id_number);
           setProfile(latestProfile);
           setProfileImage(latestProfile.profileImageUrl || null);
+              // Debug log and confirmation
+              console.log('Profile image uploaded for:', userData.id_number, 'Image URL:', latestProfile.profileImageUrl);
+              alert('Profile image uploaded and updated!');
         }
       } catch (err) {
         setError("Failed to upload image");
