@@ -98,7 +98,7 @@ const StudentProfilePage = () => {
       formData.append("profileImage", file);
       try {
         // Use fetch directly for image upload
-        const response = await fetch(`/api/profile/${userData.id_number}/image`, {
+        const response = await fetch(`https://cbrcs-final.onrender.com/api/profile/${userData.id_number}/image`, {
           method: "PUT",
           body: formData,
         });
