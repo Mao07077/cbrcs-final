@@ -18,24 +18,25 @@ const useDashboardStore = create((set) => ({
         throw new Error("User not authenticated");
       }
 
+      // Fetch all dashboard data from backend
       const data = await dashboardService.getDashboardData(userData.id_number);
-      
+
       set({
         recommendedPages: data.recommendedPages || [],
         modules: data.modules || [],
         preTests: data.preTests || [],
         postTests: data.postTests || [],
-        isLoading: false
+        isLoading: false,
+        error: null,
       });
     } catch (error) {
-      console.error("Dashboard fetch error:", error);
       set({
         recommendedPages: [],
         modules: [],
         preTests: [],
         postTests: [],
         isLoading: false,
-        error: "Failed to load dashboard data. Please try again later."
+        error: "Failed to load dashboard data. Please try again later.",
       });
     }
   },

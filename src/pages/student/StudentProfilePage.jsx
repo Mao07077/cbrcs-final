@@ -30,16 +30,7 @@ const StudentProfilePage = () => {
   const [profileImage, setProfileImage] = useState(null);
   const [top3Habits, setTop3Habits] = useState([]);
 
-  // Mock daily activity data - in real implementation this would come from backend
-  const [dailyData] = useState([
-    { day: "Mon", hours: 2.5 },
-    { day: "Tue", hours: 3.2 },
-    { day: "Wed", hours: 4.1 },
-    { day: "Thu", hours: 1.8 },
-    { day: "Fri", hours: 2.9 },
-    { day: "Sat", hours: 3.5 },
-    { day: "Sun", hours: 4.2 },
-  ]);
+  const [dailyData, setDailyData] = useState([]);
 
   const habitDescriptions = {
     "Study with Friends": "Collaborate and learn together with peers",
@@ -82,6 +73,13 @@ const StudentProfilePage = () => {
           userData.id_number
         );
         setTop3Habits(habitsData.recommendedPages || []);
+
+        // Fetch daily activity data from backend
+        if (profileData?.dailyActivity) {
+          setDailyData(profileData.dailyActivity);
+        } else {
+          setDailyData([]);
+        }
       } catch (err) {
         console.error("Profile fetch error:", err);
         setError(err.message || "Failed to load profile data");
@@ -93,12 +91,19 @@ const StudentProfilePage = () => {
     fetchProfileData();
   }, [userData]);
 
-  const handleImageChange = (event) => {
+  const handleImageChange = async (event) => {
     const file = event.target.files[0];
-    if (file) {
-      const imageUrl = URL.createObjectURL(file);
-      setProfileImage(imageUrl);
-      // In real implementation, upload to backend here
+    if (file && userData?.id_number) {
+      const formData = new FormData();
+      formData.append("profileImage", file);
+      try {
+        const response = await profileService.updateProfile(userData.id_number, formData);
+        if (response?.profileImageUrl) {
+          setProfileImage(response.profileImageUrl);
+        }
+      } catch (err) {
+        setError("Failed to upload image");
+      }
     }
   };
 
@@ -157,6 +162,12 @@ const StudentProfilePage = () => {
                   {profileImage ? (
                     <img
                       src={profileImage}
+                      alt="Profile"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : profile?.profileImageUrl ? (
+                    <img
+                      src={profile.profileImageUrl}
                       alt="Profile"
                       className="w-full h-full object-cover"
                     />
