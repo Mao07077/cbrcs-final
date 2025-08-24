@@ -1,6 +1,6 @@
 
 import { create } from "zustand";
-import apiClient from "../../services/api/axios";
+import apiClient from "../../api/axios";
 
 const useAdminDashboardStore = create((set) => ({
   stats: {
