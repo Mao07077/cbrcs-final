@@ -31,9 +31,12 @@ const StatisticsOverview = () => {
     learningStreak,
     weeklyProgress,
     subjectPerformance,
-    totalQuestions,
-    correctAnswers,
-    accuracy,
+    strengths,
+    weaknesses,
+    detailedMetrics,
+    assessmentResults,
+    preTestCount,
+    postTestCount,
   } = useDashboardStore();
 
   const StatCard = ({ icon: Icon, title, value, subtitle, color = "blue" }) => (
@@ -83,6 +86,25 @@ const StatisticsOverview = () => {
           subtitle="Keep it up!"
           color="orange"
         />
+      </div>
+      {/* Strengths & Weaknesses */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <div className="bg-green-50 p-4 rounded-lg text-center">
+          <h4 className="font-semibold text-green-700 mb-2">Strength</h4>
+          {strengths && strengths.length > 0 ? (
+            <span className="text-lg font-bold">{strengths[0].subject} ({strengths[0].score}%)</span>
+          ) : (
+            <span className="text-gray-500">No strengths yet</span>
+          )}
+        </div>
+        <div className="bg-red-50 p-4 rounded-lg text-center">
+          <h4 className="font-semibold text-red-700 mb-2">Weakness</h4>
+          {weaknesses && weaknesses.length > 0 ? (
+            <span className="text-lg font-bold">{weaknesses[0].subject} ({weaknesses[0].score}%)</span>
+          ) : (
+            <span className="text-gray-500">No weaknesses yet</span>
+          )}
+        </div>
       </div>
 
       {/* Charts Row */}
@@ -160,19 +182,19 @@ const StatisticsOverview = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="text-center p-4 bg-blue-50 rounded-lg">
             <p className="text-2xl font-bold text-blue-600">
-              {totalQuestions}
+              {detailedMetrics.totalQuestions}
             </p>
             <p className="text-sm text-gray-600">Total Questions Answered</p>
           </div>
           <div className="text-center p-4 bg-green-50 rounded-lg">
             <p className="text-2xl font-bold text-green-600">
-              {correctAnswers}
+              {detailedMetrics.correctAnswers}
             </p>
             <p className="text-sm text-gray-600">Correct Answers</p>
           </div>
           <div className="text-center p-4 bg-purple-50 rounded-lg">
             <p className="text-2xl font-bold text-purple-600">
-              {accuracy}%
+              {detailedMetrics.accuracy}%
             </p>
             <p className="text-sm text-gray-600">Overall Accuracy</p>
           </div>
@@ -186,11 +208,11 @@ const StatisticsOverview = () => {
         </h3>
         <ResponsiveContainer width="100%" height={200}>
           <BarChart
-            data={subjectPerformance}
+            data={assessmentResults}
             margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
           >
             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-            <XAxis dataKey="subject" stroke="#666" />
+            <XAxis dataKey="module" stroke="#666" />
             <YAxis stroke="#666" />
             <Tooltip
               contentStyle={{
@@ -199,13 +221,13 @@ const StatisticsOverview = () => {
                 borderRadius: "8px",
               }}
             />
-            <Bar dataKey="score" radius={[4, 4, 0, 0]}>
-              {subjectPerformance.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={entry.color} />
-              ))}
-            </Bar>
+            <Bar dataKey="score" radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
+        <div className="flex justify-between mt-4">
+          <span className="text-sm text-gray-600">Pre-tests taken: {preTestCount}</span>
+          <span className="text-sm text-gray-600">Post-tests taken: {postTestCount}</span>
+        </div>
       </div>
     </div>
   );

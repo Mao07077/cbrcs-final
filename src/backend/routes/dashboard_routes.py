@@ -30,63 +30,101 @@ def dashboard(id_number: str):
     correct_answers = 0
     flashcard_time = user.get("flashcard_time", 0)
 
-    for score in scores:
-        module_id = score["module_id"]
-        module = modules_collection.find_one({"_id": ObjectId(module_id)})
-        module_title = module["title"] if module else "Unknown Module"
-        test_type = score.get("test_type")
-        time_spent = min(score.get("time_spent", 0), 600)  # max 10 mins per test
-        study_hour += time_spent / 60
-        total_questions += score.get("total_questions", 0)
-        correct_answers += score.get("correct", 0)
-        date_taken = score.get("date_taken")
-        if date_taken:
-            day = date_taken.split("T")[0]
-            daily_progress.setdefault(day, {"hours": 0, "score": 0, "count": 0})
-            daily_progress[day]["hours"] += time_spent / 60
-            daily_progress[day]["score"] += (score.get("correct", 0) / max(score.get("total_questions", 1), 1)) * 100
-            daily_progress[day]["count"] += 1
-            if daily_progress[day]["hours"] >= 1:
-                streak_days.add(day)
-        if test_type == "pretest":
+    for module in modules:
+        module_id = str(module["_id"])
+        module_title = module["title"]
+        # Pre-test
+        pre_score = next((s for s in scores if s["module_id"] == module_id and s.get("test_type") == "pretest"), None)
+        post_score = next((s for s in scores if s["module_id"] == module_id and s.get("test_type") == "posttest"), None)
+        # Pre-test metrics
+        if pre_score:
+            time_spent = min(pre_score.get("time_spent", 0), 600)
+            study_hour += time_spent / 60
+            total_questions += pre_score.get("total_questions", 0)
+            correct_answers += pre_score.get("correct", 0)
+            date_taken = pre_score.get("date_taken")
+            if date_taken:
+                day = date_taken.split("T")[0]
+                daily_progress.setdefault(day, {"hours": 0, "score": 0, "count": 0})
+                daily_progress[day]["hours"] += time_spent / 60
+                daily_progress[day]["score"] += (pre_score.get("correct", 0) / max(pre_score.get("total_questions", 1), 1)) * 100
+                daily_progress[day]["count"] += 1
+                if daily_progress[day]["hours"] >= 1:
+                    streak_days.add(day)
             pre_test = pre_test_collection.find_one({"module_id": module_id})
             pre_test_title = pre_test["title"] if pre_test else f"Pre-Test for {module_title}"
             pre_tests.append({
                 "module_id": module_id,
                 "pre_test_title": pre_test_title,
-                "correct": score["correct"],
-                "incorrect": score["incorrect"],
-                "total_questions": score["total_questions"],
+                "correct": pre_score["correct"],
+                "incorrect": pre_score["incorrect"],
+                "total_questions": pre_score["total_questions"],
                 "time_spent": time_spent
             })
             assessment_results.append({
                 "module": module_title,
                 "type": "Pre-Test",
-                "score": (score["correct"] / max(score["total_questions"], 1)) * 100,
+                "score": (pre_score["correct"] / max(pre_score["total_questions"], 1)) * 100,
                 "duration": time_spent,
             })
-        elif test_type == "posttest":
+        else:
+            pre_tests.append({
+                "module_id": module_id,
+                "pre_test_title": f"Pre-Test for {module_title}",
+                "correct": 0,
+                "incorrect": 0,
+                "total_questions": 0,
+                "time_spent": 0
+            })
+        # Post-test metrics
+        if post_score:
+            time_spent = min(post_score.get("time_spent", 0), 600)
+            study_hour += time_spent / 60
+            total_questions += post_score.get("total_questions", 0)
+            correct_answers += post_score.get("correct", 0)
+            date_taken = post_score.get("date_taken")
+            if date_taken:
+                day = date_taken.split("T")[0]
+                daily_progress.setdefault(day, {"hours": 0, "score": 0, "count": 0})
+                daily_progress[day]["hours"] += time_spent / 60
+                daily_progress[day]["score"] += (post_score.get("correct", 0) / max(post_score.get("total_questions", 1), 1)) * 100
+                daily_progress[day]["count"] += 1
+                if daily_progress[day]["hours"] >= 1:
+                    streak_days.add(day)
             post_test = post_test_collection.find_one({"module_id": module_id})
             post_test_title = post_test["title"] if post_test else f"Post-Test for {module_title}"
             post_tests.append({
                 "module_id": module_id,
                 "post_test_title": post_test_title,
-                "correct": score["correct"],
-                "incorrect": score["incorrect"],
-                "total_questions": score["total_questions"],
+                "correct": post_score["correct"],
+                "incorrect": post_score["incorrect"],
+                "total_questions": post_score["total_questions"],
                 "time_spent": time_spent
             })
             module_completion.add(module_id)
             assessment_results.append({
                 "module": module_title,
-                    "type": "Post-Test",
-                    "score": (score["correct"] / max(score["total_questions"], 1)) * 100,
-                    "duration": time_spent,
-                })
-            # Subject performance
-            subject_scores.setdefault(module_title, {"score": 0, "count": 0})
-            subject_scores[module_title]["score"] += score.get("correct", 0)
-            subject_scores[module_title]["count"] += score.get("total_questions", 0)
+                "type": "Post-Test",
+                "score": (post_score["correct"] / max(post_score["total_questions"], 1)) * 100,
+                "duration": time_spent,
+            })
+        else:
+            post_tests.append({
+                "module_id": module_id,
+                "post_test_title": f"Post-Test for {module_title}",
+                "correct": 0,
+                "incorrect": 0,
+                "total_questions": 0,
+                "time_spent": 0
+            })
+        # Subject performance
+        subject_scores.setdefault(module_title, {"score": 0, "count": 0})
+        if pre_score:
+            subject_scores[module_title]["score"] += pre_score.get("correct", 0)
+            subject_scores[module_title]["count"] += pre_score.get("total_questions", 0)
+        if post_score:
+            subject_scores[module_title]["score"] += post_score.get("correct", 0)
+            subject_scores[module_title]["count"] += post_score.get("total_questions", 0)
 
         # Add flashcard time to study hour
         study_hour += flashcard_time / 60
