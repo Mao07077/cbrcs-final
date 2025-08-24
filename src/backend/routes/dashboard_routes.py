@@ -17,14 +17,38 @@ def dashboard(id_number: str):
         query["program"] = program
     modules = list(modules_collection.find(query))
     modules_list = [{"_id": str(module["_id"]), "title": module["title"], "image_url": module.get("image_url", "")} for module in modules]
-    scores = scores_collection.find({"user_id": id_number})
+    scores = list(scores_collection.find({"user_id": id_number}))
     pre_tests = []
     post_tests = []
+    module_completion = set()
+    study_hour = 0
+    assessment_results = []
+    streak_days = set()
+    daily_progress = {}
+    subject_scores = {}
+    total_questions = 0
+    correct_answers = 0
+    flashcard_time = user.get("flashcard_time", 0)
+
     for score in scores:
         module_id = score["module_id"]
         module = modules_collection.find_one({"_id": ObjectId(module_id)})
         module_title = module["title"] if module else "Unknown Module"
-        if score.get("test_type") == "pretest":
+        test_type = score.get("test_type")
+        time_spent = min(score.get("time_spent", 0), 600)  # max 10 mins per test
+        study_hour += time_spent / 60
+        total_questions += score.get("total_questions", 0)
+        correct_answers += score.get("correct", 0)
+        date_taken = score.get("date_taken")
+        if date_taken:
+            day = date_taken.split("T")[0]
+            daily_progress.setdefault(day, {"hours": 0, "score": 0, "count": 0})
+            daily_progress[day]["hours"] += time_spent / 60
+            daily_progress[day]["score"] += (score.get("correct", 0) / max(score.get("total_questions", 1), 1)) * 100
+            daily_progress[day]["count"] += 1
+            if daily_progress[day]["hours"] >= 1:
+                streak_days.add(day)
+        if test_type == "pretest":
             pre_test = pre_test_collection.find_one({"module_id": module_id})
             pre_test_title = pre_test["title"] if pre_test else f"Pre-Test for {module_title}"
             pre_tests.append({
@@ -33,9 +57,15 @@ def dashboard(id_number: str):
                 "correct": score["correct"],
                 "incorrect": score["incorrect"],
                 "total_questions": score["total_questions"],
-                "time_spent": score.get("time_spent", 0)
+                "time_spent": time_spent
             })
-        else:
+            assessment_results.append({
+                "module": module_title,
+                "type": "Pre-Test",
+                "score": (score["correct"] / max(score["total_questions"], 1)) * 100,
+                "duration": time_spent,
+            })
+        elif test_type == "posttest":
             post_test = post_test_collection.find_one({"module_id": module_id})
             post_test_title = post_test["title"] if post_test else f"Post-Test for {module_title}"
             post_tests.append({
@@ -44,8 +74,106 @@ def dashboard(id_number: str):
                 "correct": score["correct"],
                 "incorrect": score["incorrect"],
                 "total_questions": score["total_questions"],
-                "time_spent": score.get("time_spent", 0)
+                "time_spent": time_spent
             })
+            module_completion.add(module_id)
+            assessment_results.append({
+                "module": module_title,
+                    "type": "Post-Test",
+                    "score": (score["correct"] / max(score["total_questions"], 1)) * 100,
+                    "duration": time_spent,
+                })
+            # Subject performance
+            subject_scores.setdefault(module_title, {"score": 0, "count": 0})
+            subject_scores[module_title]["score"] += score.get("correct", 0)
+            subject_scores[module_title]["count"] += score.get("total_questions", 0)
+
+        # Add flashcard time to study hour
+        study_hour += flashcard_time / 60
+
+        # Module completion: only modules with post-test done
+        completed_modules = len(module_completion)
+        total_modules = len(modules)
+
+        # Weekly progress (last 7 days)
+        import datetime
+        today = datetime.date.today()
+        weekly_progress = []
+        for i in range(6, -1, -1):
+            day = (today - datetime.timedelta(days=i)).isoformat()
+            data = daily_progress.get(day, {"hours": 0, "score": 0, "count": 0})
+            avg_score = (data["score"] / data["count"]) if data["count"] > 0 else 0
+            weekly_progress.append({"day": day, "hours": round(data["hours"], 2), "score": round(avg_score, 2)})
+
+        # Subject performance pie chart
+        subject_performance = []
+        strengths = []
+        weaknesses = []
+        for module_title, stats in subject_scores.items():
+            percent = (stats["score"] / max(stats["count"], 1)) * 100
+            subject_performance.append({"subject": module_title, "score": round(percent, 2)})
+        # Strengths/weaknesses
+        passed = [sp for sp in subject_performance if sp["score"] >= 50]
+        failed = [sp for sp in subject_performance if sp["score"] < 50]
+        if passed:
+            strengths = [max(passed, key=lambda x: x["score"])]
+        if failed:
+            weaknesses = [min(failed, key=lambda x: x["score"])]
+
+        # Detailed metrics
+        accuracy = (correct_answers / max(total_questions, 1)) * 100
+
+        # Assessment breakdown
+        pre_test_count = len(pre_tests)
+        post_test_count = len(post_tests)
+
+        # Generate recommended pages based on user's study habits
+        recommended_pages = []
+        if user.get("top3Habits"):
+            habit_to_page = {
+                "Study with Friends": "learn-together",
+                "Asking for Help": "messages",
+                "Test Yourself Periodically": "modules",
+                "Creating a Study Schedule": "scheduler",
+                "Setting Study Goals": "notes",
+                "Organizing Notes": "notes",
+                "Teach What You've Learned": "learn-together",
+                "Use of Flashcards": "flashcards",
+                "Using Aromatherapy, Plants, or Music": "music"
+            }
+            for habit in user.get("top3Habits", []):
+                page = habit_to_page.get(habit)
+                if page and page not in recommended_pages:
+                    recommended_pages.append(page)
+            default_pages = ["modules", "scheduler", "flashcards", "learn-together", "notes", "music"]
+            for page in default_pages:
+                if len(recommended_pages) >= 3:
+                    break
+                if page not in recommended_pages:
+                    recommended_pages.append(page)
+        else:
+            recommended_pages = ["notes", "scheduler", "flashcards"]
+
+        return {
+            "modules": modules_list,
+            "completedModules": completed_modules,
+            "totalModules": total_modules,
+            "studyHours": round(study_hour, 2),
+            "learningStreak": len(streak_days),
+            "weeklyProgress": weekly_progress,
+            "subjectPerformance": subject_performance,
+            "strengths": strengths,
+            "weaknesses": weaknesses,
+            "detailedMetrics": {
+                "totalQuestions": total_questions,
+                "correctAnswers": correct_answers,
+                "accuracy": round(accuracy, 2)
+            },
+            "assessmentBreakdown": assessment_results,
+            "preTestCount": pre_test_count,
+            "postTestCount": post_test_count,
+            "recommendedPages": recommended_pages
+        }
     
     # Generate recommended pages based on user's study habits
     recommended_pages = []
