@@ -25,6 +25,7 @@ const StudentProfilePage = () => {
   const { userData } = useAuthStore();
 
   const [profile, setProfile] = useState(null);
+  const [profileImage, setProfileImage] = useState(null);
   const [dailyData, setDailyData] = useState([]);
   const [top3Habits, setTop3Habits] = useState([]);
   const [error, setError] = useState(null);
