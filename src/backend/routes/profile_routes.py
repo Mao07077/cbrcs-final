@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Body, Path
 from models import ProfileData, UserSettings
-from database import users_collection, request_collection
+from database import users_collection, request_collection, modules_collection, scores_collection, pre_test_collection, post_test_collection
 from bson import ObjectId
 from datetime import datetime
 from typing import Dict, List
@@ -24,12 +24,10 @@ def update_profile(id_number: str, data: dict = Body(...)):
 def get_profile(id_number: str):
     user = users_collection.find_one({"id_number": id_number})
     if user:
-        # Get study hour and daily activity from dashboard metrics
-        from backend.routes.dashboard_routes import dashboard
-        dashboard_data = dashboard(id_number)
-        study_hours = dashboard_data.get("studyHours", 0)
-        weekly_progress = dashboard_data.get("weeklyProgress", [])
-        # Calculate peak hours, total this week, active days
+        from backend.utils import get_dashboard_metrics
+        metrics = get_dashboard_metrics(id_number, users_collection, modules_collection, scores_collection, pre_test_collection, post_test_collection)
+        study_hours = metrics.get("studyHours", 0)
+        weekly_progress = metrics.get("weeklyProgress", [])
         total_this_week = sum(day["hours"] for day in weekly_progress)
         active_days = sum(1 for day in weekly_progress if day["hours"] >= 1)
         peak_day = max(weekly_progress, key=lambda d: d["hours"], default={"day": "", "hours": 0})
