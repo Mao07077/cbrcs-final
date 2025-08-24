@@ -17,15 +17,15 @@ const ScoreOverview = () => {
   const totalTests = (preTests?.length || 0) + (postTests?.length || 0);
   const preTestScores =
     preTests?.map((test) => ({
-      name: test.pre_test_title?.substring(0, 20) + "..." || "Pre-test",
-      score: Math.round((test.correct / test.total_questions) * 100),
+      name: test.pre_test_title ? test.pre_test_title.substring(0, 20) + "..." : "Pre-test",
+      score: Math.round((test.correct / (test.total_questions || 1)) * 100),
       type: "Pre-test",
     })) || [];
 
   const postTestScores =
     postTests?.map((test) => ({
-      name: test.post_test_title?.substring(0, 20) + "..." || "Post-test",
-      score: Math.round((test.correct / test.total_questions) * 100),
+      name: test.post_test_title ? test.post_test_title.substring(0, 20) + "..." : "Post-test",
+      score: Math.round((test.correct / (test.total_questions || 1)) * 100),
       type: "Post-test",
     })) || [];
 
