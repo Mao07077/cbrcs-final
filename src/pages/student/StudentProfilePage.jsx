@@ -25,12 +25,7 @@ const StudentProfilePage = () => {
   const { userData } = useAuthStore();
 
   const [profile, setProfile] = useState(null);
-            <div className="text-center">
-              <div className="text-2xl font-bold text-primary">
-                {dailyData.length > 0 ? ((dailyData.reduce((acc, day) => acc + day.hours, 0) / dailyData.length).toFixed(1)) : "0"}
-              </div>
-              <div className="text-sm text-gray-600">Avg Hours/Day</div>
-            </div>
+  // ...existing code...
 
   const habitDescriptions = {
     "Study with Friends": "Collaborate and learn together with peers",
