@@ -12,6 +12,7 @@ app = FastAPI(title="CBRCS API", description="CBRC Students Platform API", versi
 
 # Mount static files
 app.mount("/uploads", StaticFiles(directory=os.path.abspath("uploads")), name="uploads")
+app.mount("/static/picture", StaticFiles(directory=os.path.abspath("picture")), name="picture")
 
 # Get CORS origins from environment variable or use defaults
 cors_origins_env = os.getenv("CORS_ORIGINS", 
