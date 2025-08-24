@@ -88,6 +88,7 @@ def get_profile(id_number: str):
         "id_number": user.get("id_number", ""),
         "program": user.get("program", ""),
         "hoursActivity": user.get("hoursActivity", 0),
+        "profileImageUrl": user.get("profileImageUrl", ""),
         "dailyActivity": graph_data,
         "totalWeek": round(total_week, 2),
         "peakHour": peak_hour,
