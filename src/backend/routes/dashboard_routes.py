@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Query
 from database import users_collection, modules_collection, scores_collection, pre_test_collection, post_test_collection
 from bson import ObjectId
 from config import logger
-from backend.utils import get_dashboard_metrics
+from ..utils import get_dashboard_metrics
 from typing import Optional
 
 router = APIRouter()
