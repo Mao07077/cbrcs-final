@@ -1,12 +1,31 @@
+
 from fastapi import APIRouter, HTTPException, Query, Form, File, UploadFile
 from database import modules_collection, post_test_collection
 from bson import ObjectId
 from config import logger
 import os
-import shutil
 from typing import Optional
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+from google_auth_oauthlib.flow import InstalledAppFlow
 
-router = APIRouter()
+
+SCOPES = ['https://www.googleapis.com/auth/drive.file']
+CREDENTIALS_FILE = 'client_secret.json'
+
+def authenticate_drive():
+    flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
+    creds = flow.run_local_server(port=8080)
+    return creds
+
+def upload_pdf_to_drive(file_path, creds):
+    service = build('drive', 'v3', credentials=creds)
+    file_metadata = {'name': os.path.basename(file_path)}
+    media = MediaFileUpload(file_path, mimetype='application/pdf')
+    file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+    service.permissions().create(fileId=file['id'], body={'role': 'reader', 'type': 'anyone'}).execute()
+    link = f"https://drive.google.com/file/d/{file['id']}/view?usp=sharing"
+    return link
 
 @router.post("/api/create_module")
 async def create_module(
@@ -18,19 +37,21 @@ async def create_module(
     document: UploadFile = File(...),
     picture: UploadFile = File(...),
 ):
-    import cloudinary.uploader, io
     try:
-        # Upload document to Cloudinary (ensure public access)
-        document_bytes = await document.read()
-        document_result = cloudinary.uploader.upload(
-            io.BytesIO(document_bytes),
-            folder="module_docs",
-            type="upload",
-            resource_type="auto"
-        )
-        document_url = document_result["secure_url"]
+        # Save PDF temporarily
+        temp_pdf_path = f"uploads/{document.filename}"
+        with open(temp_pdf_path, "wb") as f:
+            f.write(await document.read())
 
-        # Upload picture to Cloudinary (ensure public access)
+        # Authenticate and upload to Google Drive
+        creds = authenticate_drive()
+        document_url = upload_pdf_to_drive(temp_pdf_path, creds)
+
+        # Remove temp file
+        os.remove(temp_pdf_path)
+
+        # Upload picture to Cloudinary (keep existing logic)
+        import cloudinary.uploader, io
         picture_bytes = await picture.read()
         picture_result = cloudinary.uploader.upload(
             io.BytesIO(picture_bytes),
