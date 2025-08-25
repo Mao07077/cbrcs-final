@@ -18,22 +18,26 @@ async def create_module(
     document: UploadFile = File(...),
     picture: UploadFile = File(...),
 ):
+    import cloudinary.uploader, io
     try:
-        document_path = f"uploads/{document.filename}"
-        picture_path = f"uploads/{picture.filename}"
-        os.makedirs("uploads", exist_ok=True)
-        with open(document_path, "wb") as document_file:
-            shutil.copyfileobj(document.file, document_file)
-        with open(picture_path, "wb") as picture_file:
-            shutil.copyfileobj(picture.file, picture_file)
+        # Upload document to Cloudinary
+        document_bytes = await document.read()
+        document_result = cloudinary.uploader.upload(io.BytesIO(document_bytes), folder="module_docs")
+        document_url = document_result["secure_url"]
+
+        # Upload picture to Cloudinary
+        picture_bytes = await picture.read()
+        picture_result = cloudinary.uploader.upload(io.BytesIO(picture_bytes), folder="module_pics")
+        picture_url = picture_result["secure_url"]
+
         module_data = {
             "title": title,
             "topic": topic,
             "description": description,
             "program": program,
             "id_number": id_number,
-            "document_url": document_path,
-            "image_url": picture_path,
+            "document_url": document_url,
+            "image_url": picture_url,
         }
         result = modules_collection.insert_one(module_data)
         if result.inserted_id:

@@ -18,34 +18,29 @@ async def save_post(
     course_image_2: Optional[UploadFile] = File(None),
     course_image_3: Optional[UploadFile] = File(None)
 ):
+    import cloudinary.uploader, io
     try:
         post_data = {}
         if intro_header and intro_subHeader:
             intro_data = {"header": intro_header, "subHeader": intro_subHeader}
             if intro_image:
-                intro_image_path = f"uploads/{intro_image.filename}"
-                os.makedirs("uploads", exist_ok=True)
-                with open(intro_image_path, "wb") as f:
-                    shutil.copyfileobj(intro_image.file, f)
-                intro_data["introImage"] = intro_image_path
+                intro_bytes = await intro_image.read()
+                intro_result = cloudinary.uploader.upload(io.BytesIO(intro_bytes), folder="post_images")
+                intro_data["introImage"] = intro_result["secure_url"]
             post_data["intro"] = intro_data
         if news_content:
             news_data = {"content": news_content}
             if news_image:
-                news_image_path = f"uploads/{news_image.filename}"
-                os.makedirs("uploads", exist_ok=True)
-                with open(news_image_path, "wb") as f:
-                    shutil.copyfileobj(news_image.file, f)
-                news_data["newsImage"] = news_image_path
+                news_bytes = await news_image.read()
+                news_result = cloudinary.uploader.upload(io.BytesIO(news_bytes), folder="post_images")
+                news_data["newsImage"] = news_result["secure_url"]
             post_data["news"] = news_data
         course_images = []
         for img, idx in [(course_image_1, 1), (course_image_2, 2), (course_image_3, 3)]:
             if img:
-                img_path = f"uploads/{img.filename}"
-                os.makedirs("uploads", exist_ok=True)
-                with open(img_path, "wb") as f:
-                    shutil.copyfileobj(img.file, f)
-                course_images.append(img_path)
+                img_bytes = await img.read()
+                img_result = cloudinary.uploader.upload(io.BytesIO(img_bytes), folder="post_images")
+                course_images.append(img_result["secure_url"])
             else:
                 course_images.append(None)
         post_data["courseImages"] = {"images": course_images}
