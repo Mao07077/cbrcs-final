@@ -489,6 +489,9 @@ def add_track_to_playlist(playlist_id: str, track_request: AddTrackRequest):
             "message": "Track added successfully",
             "track": track_info
         }
+    except HTTPException as e:
+        # Propagate HTTPException so FastAPI returns the correct status
+        raise
     except Exception as e:
         logger.error(f"Error in add_track_to_playlist: {e}")
         import traceback
