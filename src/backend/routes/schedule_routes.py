@@ -21,7 +21,5 @@ def get_schedule(id_number: str):
     schedule = schedule_collection.find_one({"id_number": id_number})
     if not schedule:
         raise HTTPException(status_code=404, detail="No schedule found.")
-    return {
-        "schedule": schedule["schedule"],
-        "times": schedule["times"]
-    }
+    # Return just the array of events for frontend compatibility
+    return schedule["schedule"]
