@@ -39,6 +39,7 @@ class ProfileData(BaseModel):
     id_number: str
     program: str
     hoursActivity: int = 0
+    profileImageUrl: str = ""
 
 class Question(BaseModel):
     question: str
