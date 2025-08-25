@@ -20,14 +20,24 @@ async def create_module(
 ):
     import cloudinary.uploader, io
     try:
-        # Upload document to Cloudinary
+        # Upload document to Cloudinary (ensure public access)
         document_bytes = await document.read()
-        document_result = cloudinary.uploader.upload(io.BytesIO(document_bytes), folder="module_docs")
+        document_result = cloudinary.uploader.upload(
+            io.BytesIO(document_bytes),
+            folder="module_docs",
+            type="upload",
+            resource_type="auto"
+        )
         document_url = document_result["secure_url"]
 
-        # Upload picture to Cloudinary
+        # Upload picture to Cloudinary (ensure public access)
         picture_bytes = await picture.read()
-        picture_result = cloudinary.uploader.upload(io.BytesIO(picture_bytes), folder="module_pics")
+        picture_result = cloudinary.uploader.upload(
+            io.BytesIO(picture_bytes),
+            folder="module_pics",
+            type="upload",
+            resource_type="auto"
+        )
         picture_url = picture_result["secure_url"]
 
         module_data = {

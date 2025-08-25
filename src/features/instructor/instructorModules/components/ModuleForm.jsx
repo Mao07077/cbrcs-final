@@ -1,13 +1,16 @@
 import React, { useState, useEffect } from "react";
 import useModuleStore from "../../../../store/instructor/moduleStore";
+import useAuthStore from '../../../../store/authStore';
 
 const ModuleForm = () => {
   const { saveModule, editingModule, closeModal, isLoading } = useModuleStore();
+  const { userData } = useAuthStore();
   const [formData, setFormData] = useState({
     title: "",
     topic: "",
     description: "",
     program: "",
+    id_number: userData?.id_number || ""
   });
   const [file, setFile] = useState(null);
   const [picture, setPicture] = useState(null);
@@ -19,11 +22,12 @@ const ModuleForm = () => {
         topic: editingModule.topic,
         description: editingModule.description,
         program: editingModule.program,
+        id_number: userData?.id_number || ""
       });
     } else {
-      setFormData({ title: "", topic: "", description: "", program: "" });
+      setFormData({ title: "", topic: "", description: "", program: "", id_number: userData?.id_number || "" });
     }
-  }, [editingModule]);
+  }, [editingModule, userData]);
 
   const handleChange = (e) =>
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -63,59 +67,50 @@ const ModuleForm = () => {
           className="form-input"
           required
         />
-        <textarea
+        <input
+          type="text"
           name="description"
           value={formData.description}
           onChange={handleChange}
-          placeholder="Description"
-          className="form-input h-24"
+          placeholder="Module Description"
+          className="form-input"
           required
         />
-        <select
+        <input
+          type="text"
           name="program"
           value={formData.program}
           onChange={handleChange}
-          className="form-select"
+          placeholder="Program"
+          className="form-input"
           required
-        >
-          <option value="">Select Program</option>
-          <option value="LET">LET</option>
-          <option value="Nursing">Nursing</option>
-          <option value="Civil Service">Civil Service</option>
-        </select>
-        <div>
-          <label>Module Document (PDF, DOC, PPT)</label>
-          <input
-            type="file"
-            onChange={(e) => setFile(e.target.files[0])}
-            className="form-file-input"
-          />
-        </div>
-        <div>
-          <label>Module Image</label>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(e) => setPicture(e.target.files[0])}
-            className="form-file-input"
-          />
-        </div>
-        <div className="flex justify-end space-x-4">
-          <button
-            type="button"
-            onClick={closeModal}
-            className="btn btn-secondary"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="btn btn-primary"
-          >
-            {isLoading ? "Saving..." : "Save Module"}
-          </button>
-        </div>
+        />
+        {/* id_number is hidden but always included */}
+        <input
+          type="hidden"
+          name="id_number"
+          value={formData.id_number}
+        />
+        <input
+          type="file"
+          name="document"
+          accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.png,.jpg,.jpeg"
+          onChange={(e) => setFile(e.target.files[0])}
+          required
+        />
+        <input
+          type="file"
+          name="picture"
+          accept=".png,.jpg,.jpeg"
+          onChange={(e) => setPicture(e.target.files[0])}
+          required
+        />
+        <button type="submit" className="btn btn-primary" disabled={isLoading}>
+          {isLoading ? "Saving..." : editingModule ? "Update Module" : "Create Module"}
+        </button>
+        <button type="button" className="btn btn-secondary ml-2" onClick={closeModal}>
+          Cancel
+        </button>
       </form>
     </div>
   );

@@ -25,7 +25,7 @@ const ModuleCard = ({ module, isPreTestCompleted, isPostTestCompleted }) => {
   }
 
   const imageUrl = module.image_url
-    ? `${API_URL}/${module.image_url}`
+    ? module.image_url
     : FALLBACK_IMAGE_URL;
 
   return (

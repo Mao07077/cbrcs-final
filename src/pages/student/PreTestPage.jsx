@@ -2,11 +2,13 @@ import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import moduleService from "../../services/moduleService";
 import useAuthStore from "../../store/authStore";
+import useDashboardStore from '../../store/student/dashboardStore';
 
 const PreTestPage = () => {
   const { moduleId } = useParams();
   const navigate = useNavigate();
   const { userData } = useAuthStore();
+  const refreshDashboard = useDashboardStore(state => state.fetchDashboardData);
   const [preTest, setPreTest] = useState(null);
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [answers, setAnswers] = useState({});
@@ -56,7 +58,8 @@ const PreTestPage = () => {
       setIsSubmitting(true);
       const timeSpent = Math.floor((Date.now() - startTime) / 1000); // Time in seconds
       const response = await moduleService.submitPreTest(moduleId, answers, userData.id_number, timeSpent);
-      
+      // Refresh dashboard data after submitting pre-test
+      await refreshDashboard();
       // Navigate to results page with the test results
       navigate("/pre-test-results", { 
         state: { 
@@ -71,7 +74,6 @@ const PreTestPage = () => {
         }
       });
     } catch (error) {
-      console.error("Failed to submit pre-test:", error);
       setError("Failed to submit pre-test. Please try again.");
     } finally {
       setIsSubmitting(false);

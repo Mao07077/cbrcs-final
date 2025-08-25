@@ -17,7 +17,34 @@ const ModuleTable = ({ modules }) => {
         <tbody>
           {modules.map((module) => (
             <tr key={module._id}>
-              <td>{module.title}</td>
+              <td>
+                {module.title}
+                <br />
+                {/* Show module image if available */}
+                {module.image_url && (
+                  <img
+                    src={module.image_url}
+                    alt={module.title}
+                    style={{
+                      maxWidth: "120px",
+                      marginTop: "8px",
+                    }}
+                  />
+                )}
+                {/* Show document link if available */}
+                {module.document_url && (
+                  <div style={{ marginTop: "4px" }}>
+                    <a
+                      href={module.document_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 underline"
+                    >
+                      Download Document
+                    </a>
+                  </div>
+                )}
+              </td>
               <td>{module.program}</td>
               <td>
                 <button

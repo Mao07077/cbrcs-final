@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import moduleService from "../../services/moduleService";
 
 const ModuleContentPage = () => {
+  const [showFileModal, setShowFileModal] = useState(false);
   const { moduleId } = useParams();
   const navigate = useNavigate();
   const [module, setModule] = useState(null);
@@ -70,8 +71,9 @@ const ModuleContentPage = () => {
     );
   }
 
-  const API_URL = import.meta.env.REACT_APP_API_URL || "http://127.0.0.1:8000";
-  const imageUrl = module.image_url ? `${API_URL}/${module.image_url}` : null;
+  // Use Cloudinary URLs directly
+  const imageUrl = module.image_url || null;
+  const documentUrl = module.document_url || null;
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -87,7 +89,6 @@ const ModuleContentPage = () => {
               />
             </div>
           )}
-
           {/* Content */}
           <div className="p-8">
             {/* Title and Navigation */}
@@ -162,7 +163,40 @@ const ModuleContentPage = () => {
                   Module content including lessons, videos, and interactive materials will be available here. 
                   Continue studying the materials and complete all activities before taking the post-test.
                 </p>
+                {/* Module File Button */}
+                {documentUrl && (
+                  <button
+                    onClick={() => setShowFileModal(true)}
+                    className="mt-6 px-4 py-2 bg-blue-600 text-white font-semibold rounded shadow hover:bg-blue-700"
+                  >
+                    View Module File
+                  </button>
+                )}
               </div>
+              {/* File Modal */}
+              {showFileModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+                  <div className="bg-white rounded-lg shadow-lg max-w-3xl w-full p-6 relative">
+                    <button
+                      onClick={() => setShowFileModal(false)}
+                      className="absolute top-2 right-2 text-gray-600 hover:text-gray-900 text-xl font-bold"
+                      aria-label="Close"
+                    >
+                      &times;
+                    </button>
+                    <h2 className="text-xl font-bold mb-4">Module File</h2>
+                    <div className="w-full h-[70vh]">
+                      <iframe
+                        src={documentUrl}
+                        title="Module File"
+                        className="w-full h-full border rounded"
+                        frameBorder="0"
+                        allowFullScreen
+                      ></iframe>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Progress and Actions */}
