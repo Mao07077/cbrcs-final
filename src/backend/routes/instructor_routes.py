@@ -9,7 +9,7 @@ async def get_students():
     """Get all students for instructor"""
     try:
         user_collection = get_user_collection()
-        students = list(user_collection.find({"role": "Student"}))
+        students = list(user_collection.find({"role": {"$regex": "^student$", "$options": "i"}}))
         
         # Format student data
         formatted_students = []
