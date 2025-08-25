@@ -458,9 +458,12 @@ def add_track_to_playlist(playlist_id: str, track_request: AddTrackRequest):
 
         if "youtube.com" in url or "youtu.be" in url:
             try:
-                track_info = extract_youtube_info(url)
-                track_info["source"] = "youtube"
-                logger.info(f"Extracted YouTube track info: {track_info}")
+                    track_info = extract_youtube_info(url)
+                    if track_info is None:
+                        logger.error("YouTube extraction failed: track_info is None")
+                        raise HTTPException(status_code=400, detail="YouTube extraction failed: Unable to extract info. This may require authentication/cookies.")
+                    track_info["source"] = "youtube"
+                    logger.info(f"Extracted YouTube track info: {track_info}")
             except ValueError as e:
                 logger.error(f"YouTube extraction error: {e}")
                 raise HTTPException(status_code=400, detail=str(e))
