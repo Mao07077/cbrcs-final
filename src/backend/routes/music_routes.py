@@ -68,6 +68,7 @@ def extract_youtube_info(url: str) -> Dict[str, Any]:
             'no_warnings': True,
             'extract_flat': False,
             'ignoreerrors': False,
+            'cookies': 'youtube_cookies.txt',  # Path to your cookies file in backend directory
         }
         
         print(f"Attempting to extract info for URL: {url}")

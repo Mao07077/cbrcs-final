@@ -1,3 +1,26 @@
+from fastapi import Request
+# Endpoint: Get all modules posted by the instructor
+@router.get("/api/instructor/modules")
+async def get_instructor_modules(request: Request):
+    # Optionally, get instructor_id from query params or session
+    instructor_id = request.query_params.get("instructor_id")
+    query = {}
+    if instructor_id:
+        query["id_number"] = instructor_id
+    modules = list(modules_collection.find(query))
+    modules_list = [
+        {
+            "_id": str(module["_id"]),
+            "title": module["title"],
+            "description": module.get("description", ""),
+            "file": module.get("file", ""),
+            "subject": module.get("subject", ""),
+            "program": module.get("program", ""),
+            "image_url": module.get("image_url", ""),
+        }
+        for module in modules
+    ]
+    return modules_list
 from fastapi import APIRouter, HTTPException, Query
 from database import users_collection, modules_collection, scores_collection, pre_test_collection, post_test_collection
 from bson import ObjectId
@@ -259,6 +282,14 @@ async def get_instructor_dashboard(instructor_id: str, program: Optional[str] = 
         instructor = users_collection.find_one({"id_number": instructor_id, "role": {"$regex": "^instructor$", "$options": "i"}})
         if not instructor:
             raise HTTPException(status_code=404, detail="Instructor not found")
+        # Get all students for the instructor's program
+        students_query = {"role": {"$regex": "^student$", "$options": "i"}}
+        if program:
+            students_query["program"] = program
+        students = list(users_collection.find(students_query))
+        total_students = len(students)
+
+        # Get all modules posted by this instructor
         modules_query = {"id_number": instructor_id}
         if program:
             modules_query["program"] = program
@@ -271,19 +302,15 @@ async def get_instructor_dashboard(instructor_id: str, program: Optional[str] = 
                 "program": module.get("program", ""),
             } for module in modules
         ]
-        students_query = {"role": {"$regex": "^student$", "$options": "i"}}
-        if program:
-            students_query["program"] = program
-        students = list(users_collection.find(students_query))
-        total_students = len(students)
 
-        # Engagement Rate: Calculates as (total submissions / total questions) for posttests
-        scores = scores_collection.find({"test_type": "posttest"})
+        # Calculate engagement rate: (total submissions / total questions) for posttests
         total_submissions = 0
         total_questions = 0
-        for score in scores:
-            total_submissions += score["correct"] + score["incorrect"]
-            total_questions += score["total_questions"]
+        for student in students:
+            scores = scores_collection.find({"user_id": student["id_number"], "test_type": "posttest"})
+            for score in scores:
+                total_submissions += score.get("correct", 0) + score.get("incorrect", 0)
+                total_questions += score.get("total_questions", 0)
         engagement_rate = (total_submissions / total_questions * 100) if total_questions > 0 else 0
 
         # Attendance: streak days for each student
