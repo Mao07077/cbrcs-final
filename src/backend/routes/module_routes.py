@@ -12,7 +12,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 
 
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
-CREDENTIALS_FILE = 'client_secret.json'
+CREDENTIALS_FILE = '/etc/secrets/client_secret.json'
 
 router = APIRouter()
 
