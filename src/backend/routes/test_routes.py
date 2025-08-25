@@ -100,8 +100,8 @@ def submit_pre_test(module_id: str, submission: PostTestSubmission):
         "time_spent": submission.time_spent,
         "submitted_at": datetime.utcnow()
     }
-        result = scores_collection.insert_one(score_data)
-        print(f"[DEBUG] Pre-test score saved: {score_data}, Inserted ID: {result.inserted_id}")
+    result = scores_collection.insert_one(score_data)
+    print(f"[DEBUG] Pre-test score saved: {score_data}, Inserted ID: {result.inserted_id}")
     return {
         "success": True,
         "message": "Pre-test submitted successfully!",
