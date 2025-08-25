@@ -66,6 +66,7 @@ const StudentProfilePage = () => {
 
         // Fetch profile data
         const profileData = await profileService.getProfile(userData.id_number);
+        console.log('Full profile object:', profileData);
         setProfile(profileData);
         // Always set profileImage from backend
         setProfileImage(profileData.profileImageUrl || null);
@@ -82,8 +83,8 @@ const StudentProfilePage = () => {
         } else {
           setDailyData([]);
         }
-            // Debug log
-            console.log('Fetched profile for:', userData.id_number, 'Image URL:', profileData.profileImageUrl);
+        // Debug log
+        console.log('Fetched profile for:', userData.id_number, 'Image URL:', profileData.profileImageUrl);
       } catch (err) {
         console.error("Profile fetch error:", err);
         setError(err.message || "Failed to load profile data");
