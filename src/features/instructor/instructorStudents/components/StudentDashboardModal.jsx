@@ -13,14 +13,35 @@ const Modal = ({ isOpen, onClose, children }) => {
 
 const StudentDashboardModal = () => {
   const { isModalOpen, selectedStudent, closeStudentModal } = useStudentStore();
+  const [studentStats, setStudentStats] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  // In a real app, you'd fetch this data or have it included with the student object.
-  const studentStats = {
-    modulesCompleted: 8,
-    totalModules: 12,
-    averageScore: "88%",
-    lastLogin: "2024-07-28",
-  };
+  useEffect(() => {
+    if (isModalOpen && selectedStudent) {
+      setLoading(true);
+      setError(null);
+      fetch(`/api/dashboard/${selectedStudent.studentNo}`)
+        .then(res => res.json())
+        .then(data => {
+          setStudentStats({
+            modulesCompleted: data.completedModules,
+            totalModules: data.totalModules,
+            averageScore: data.detailedMetrics?.accuracy + "%",
+            lastLogin: selectedStudent.lastLogin || "N/A",
+            studyHours: data.studyHours,
+            learningStreak: data.learningStreak,
+          });
+          setLoading(false);
+        })
+        .catch(err => {
+          setError("Failed to fetch student dashboard.");
+          setLoading(false);
+        });
+    } else {
+      setStudentStats(null);
+    }
+  }, [isModalOpen, selectedStudent]);
 
   return (
     <Modal isOpen={isModalOpen} onClose={closeStudentModal}>
@@ -40,12 +61,17 @@ const StudentDashboardModal = () => {
             </p>
             <hr className="my-4" />
             <h3 className="text-lg font-semibold">Performance Stats</h3>
-            <p>
-              Modules Completed: {studentStats.modulesCompleted} /{" "}
-              {studentStats.totalModules}
-            </p>
-            <p>Average Score: {studentStats.averageScore}</p>
-            <p>Last Login: {studentStats.lastLogin}</p>
+            {loading && <p>Loading...</p>}
+            {error && <p className="text-red-500">{error}</p>}
+            {studentStats && (
+              <>
+                <p>Modules Completed: {studentStats.modulesCompleted} / {studentStats.totalModules}</p>
+                <p>Average Score: {studentStats.averageScore}</p>
+                <p>Study Hours: {studentStats.studyHours}</p>
+                <p>Learning Streak: {studentStats.learningStreak} days</p>
+                <p>Last Login: {studentStats.lastLogin}</p>
+              </>
+            )}
           </div>
           <div className="text-right mt-6">
             <button

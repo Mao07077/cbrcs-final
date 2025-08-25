@@ -95,20 +95,31 @@ const usePostTestStore = create((set, get) => ({
     set({ editingTest: test, isModalOpen: true });
   },
 
-  newTest: (moduleId) => {
+  newTest: (moduleId, hasPreTest) => {
     if (!moduleId) {
       console.error("A module must be selected to create a new test.");
       return;
     }
-    set({
-      editingTest: {
-        _id: `new_${Date.now()}`,
-        module_id: moduleId,
-        title: "",
-        questions: [{ question: "", options: ["", "", "", ""], correctAnswer: "" }],
-      },
-      isModalOpen: true,
-    });
+    if (!hasPreTest) {
+      // Allow creating post-test
+      set({
+        editingTest: {
+          _id: `new_${Date.now()}`,
+          module_id: moduleId,
+          title: "",
+          questions: [{ question: "", options: ["", "", "", ""], correctAnswer: "" }],
+        },
+        isModalOpen: true,
+      });
+    } else {
+      // Only allow editing existing post-test
+      const moduleTests = get().tests[moduleId] || [];
+      if (moduleTests.length > 0) {
+        set({ editingTest: moduleTests[0], isModalOpen: true });
+      } else {
+        alert("This module already has a pre-test. You can only edit the post-test.");
+      }
+    }
   },
 
   closeModal: () => {

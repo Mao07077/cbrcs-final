@@ -276,6 +276,8 @@ async def get_instructor_dashboard(instructor_id: str, program: Optional[str] = 
             students_query["program"] = program
         students = list(users_collection.find(students_query))
         total_students = len(students)
+
+        # Engagement Rate: Calculates as (total submissions / total questions) for posttests
         scores = scores_collection.find({"test_type": "posttest"})
         total_submissions = 0
         total_questions = 0
@@ -283,13 +285,24 @@ async def get_instructor_dashboard(instructor_id: str, program: Optional[str] = 
             total_submissions += score["correct"] + score["incorrect"]
             total_questions += score["total_questions"]
         engagement_rate = (total_submissions / total_questions * 100) if total_questions > 0 else 0
+
+        # Attendance: streak days for each student
         attendance_data = []
         for student in students:
-            student_scores = scores_collection.find_one({"user_id": student["id_number"], "test_type": "posttest"})
-            attendance_percentage = student_scores["correct"] / student_scores["total_questions"] * 100 if student_scores else 0
+            scores = list(scores_collection.find({"user_id": student["id_number"]}))
+            streak_days = set()
+            for score in scores:
+                date_taken = score.get("date_taken")
+                time_spent = min(score.get("time_spent", 0), 600)
+                if date_taken:
+                    day = date_taken.split("T")[0]
+                    if time_spent >= 60:
+                        streak_days.add(day)
+            attendance_count = len(streak_days)
             attendance_data.append({
                 "studentName": f"{student.get('firstname', '')} {student.get('lastname', '')}".strip(),
-                "percentage": round(attendance_percentage, 2),
+                "attendanceDays": attendance_count,
+                "attendanceHours": attendance_count,  # 1 streak = 1hr
             })
         return {
             "stats": {

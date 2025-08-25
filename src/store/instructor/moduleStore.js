@@ -2,29 +2,7 @@ import { create } from "zustand";
 import apiClient from '../../api/axios';
 
 const useModuleStore = create((set, get) => ({
-    modules: [
-    {
-      _id: "mod1",
-      title: "Introduction to Professional Education",
-      description: "An overview of the teaching profession, its history, and philosophical foundations.",
-      file: "/path/to/profed_intro.pdf",
-      subject: "profed",
-    },
-    {
-      _id: "mod2",
-      title: "Child and Adolescent Development",
-      description: "A study of the developmental stages of learners and the corresponding educational implications.",
-      file: "/path/to/child_dev.pdf",
-      subject: "profed",
-    },
-    {
-      _id: "mod3",
-      title: "Rizal's Life and Works",
-      description: "A comprehensive study of the life of the Philippine national hero.",
-      file: "/path/to/rizal.pdf",
-      subject: "gened",
-    },
-  ],
+  modules: [],
   isLoading: false,
   error: null,
   isModalOpen: false,
@@ -32,9 +10,14 @@ const useModuleStore = create((set, get) => ({
 
   // --- Actions ---
   fetchModules: () => {
-    // Mock implementation
-    const { modules } = get();
-    set({ modules, isLoading: false });
+    set({ isLoading: true });
+    apiClient.get('/api/instructor/modules')
+      .then(response => {
+        set({ modules: response.data, isLoading: false });
+      })
+      .catch(error => {
+        set({ error: error.message, isLoading: false });
+      });
   },
 
   saveModule: async (formData) => {
