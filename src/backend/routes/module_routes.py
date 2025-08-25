@@ -10,8 +10,11 @@ from googleapiclient.http import MediaFileUpload
 from google_auth_oauthlib.flow import InstalledAppFlow
 
 
+
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
 CREDENTIALS_FILE = 'client_secret.json'
+
+router = APIRouter()
 
 def authenticate_drive():
     flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
