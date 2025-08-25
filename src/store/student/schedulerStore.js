@@ -65,14 +65,18 @@ const useSchedulerStore = create((set, get) => ({
         throw new Error("User not authenticated");
       }
 
-      const events = await scheduleService.getSchedules(userData.id_number);
-      // Convert backend dates to JavaScript Date objects
-      const formattedEvents = events.map(event => ({
-        ...event,
-        start: new Date(event.start),
-        end: new Date(event.end)
-      }));
-      
+      // Backend returns schedule as array of arrays: [title, start, end]
+      const scheduleArr = await scheduleService.getSchedules(userData.id_number);
+      const formattedEvents = Array.isArray(scheduleArr)
+        ? scheduleArr.map((item, idx) => ({
+            id: idx + 1,
+            title: item[0],
+            start: new Date(item[1]),
+            end: new Date(item[2]),
+            resourceId: item[3] || undefined
+          }))
+        : [];
+
       set({ events: formattedEvents, isLoading: false });
     } catch (error) {
       console.error("Schedule fetch error:", error);
