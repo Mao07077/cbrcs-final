@@ -1,12 +1,23 @@
+from bson import ObjectId
+
 from fastapi import APIRouter, HTTPException, Query, Form, File, UploadFile, Path
+router = APIRouter()
 from models import ReportResponse
 from database import reports_collection
 from typing import Optional, List
+import io
+import cloudinary
+import cloudinary.uploader
 import os
 import shutil
 from datetime import datetime
 
-router = APIRouter()
+
+cloudinary.config(
+    cloud_name = 'dvdsn3v1l',
+    api_key = '268751277619354',
+    api_secret = 'd9aIRSb6pS083AiBpWRd-EAF62Y'
+)
 
 @router.post("/api/reports")
 async def submit_report(
@@ -22,11 +33,9 @@ async def submit_report(
         "created_at": datetime.utcnow()
     }
     if screenshot:
-        report["screenshot_filename"] = screenshot.filename
-        screenshot_path = f"uploads/{screenshot.filename}"
-        os.makedirs("uploads", exist_ok=True)
-        with open(screenshot_path, "wb") as f:
-            shutil.copyfileobj(screenshot.file, f)
+        file_bytes = await screenshot.read()
+        result = cloudinary.uploader.upload(io.BytesIO(file_bytes), folder="report_screenshots")
+        report["screenshot_url"] = result["secure_url"]
     reports_collection.insert_one(report)
     return {"message": "Report submitted successfully!"}
 
