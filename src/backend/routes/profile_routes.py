@@ -23,12 +23,17 @@ router = APIRouter()
 async def upload_profile_image(id_number: str, profileImage: UploadFile = File(...)):
     user = users_collection.find_one({"id_number": id_number})
     if not user:
+        print(f"[DEBUG] User not found for id_number: {id_number}")
         raise HTTPException(status_code=404, detail="User not found")
     # Read file bytes and upload to Cloudinary as a file-like object
     file_bytes = await profileImage.read()
     result = cloudinary.uploader.upload(io.BytesIO(file_bytes), folder="profile_pics")
     image_url = result["secure_url"]
-    users_collection.update_one({"id_number": id_number}, {"$set": {"profileImageUrl": image_url}})
+    print(f"[DEBUG] Cloudinary upload result for {id_number}: {result}")
+    update_result = users_collection.update_one({"id_number": id_number}, {"$set": {"profileImageUrl": image_url}})
+    print(f"[DEBUG] MongoDB update result for {id_number}: {update_result.raw_result}")
+    user_after = users_collection.find_one({"id_number": id_number})
+    print(f"[DEBUG] User after update for {id_number}: {user_after}")
     return JSONResponse({"success": True, "profileImageUrl": image_url})
 
 @router.put("/api/profile/{id_number}")
@@ -47,7 +52,9 @@ def update_profile(id_number: str, data: dict = Body(...)):
 @router.get("/api/profile/{id_number}", response_model=ProfileData)
 def get_profile(id_number: str):
     user = users_collection.find_one({"id_number": id_number})
+    print(f"[DEBUG] get_profile for {id_number}: {user}")
     if not user:
+        print(f"[DEBUG] User not found for id_number: {id_number}")
         raise HTTPException(status_code=404, detail="User not found")
 
     # Aggregate daily study activity from scores and flashcard time
