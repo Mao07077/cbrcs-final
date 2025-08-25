@@ -1,9 +1,20 @@
 import apiClient from "../api/axios";
 
+
 const scheduleService = {
   getSchedule: async (idNumber) => {
     const response = await apiClient.get(`/get_schedule/${idNumber}`);
     return response.data;
+  },
+
+  // Add getSchedules to match schedulerStore usage
+  getSchedules: async (idNumber) => {
+    const response = await apiClient.get(`/get_schedule/${idNumber}`);
+    // If backend returns an array, use it directly; if not, wrap in array
+    if (Array.isArray(response.data)) {
+      return response.data;
+    }
+    return response.data?.events || [];
   },
 
   createSchedule: async (scheduleData) => {

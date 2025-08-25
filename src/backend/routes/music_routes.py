@@ -439,28 +439,35 @@ def delete_user_playlist(playlist_id: str):
 @router.post("/api/music/user-playlist/{playlist_id}/add-track")
 def add_track_to_playlist(playlist_id: str, track_request: AddTrackRequest):
     """Add a track to a user playlist"""
+    import logging
+    logger = logging.getLogger("music_routes")
     try:
+        logger.info(f"Add track request: playlist_id={playlist_id}, track_request={track_request}")
         if not ObjectId.is_valid(playlist_id):
+            logger.error(f"Invalid playlist ID: {playlist_id}")
             raise HTTPException(status_code=400, detail="Invalid playlist ID")
-        
-        # Check if playlist exists
+
         playlist = user_playlists_collection.find_one({"_id": ObjectId(playlist_id)})
         if not playlist:
+            logger.error(f"Playlist not found: {playlist_id}")
             raise HTTPException(status_code=404, detail="Playlist not found")
-        
-        # Extract info from URL
+
         track_info = None
         url = track_request.url.strip()
-        
-        # Check if it's a YouTube URL
+        logger.info(f"Track URL: {url}")
+
         if "youtube.com" in url or "youtu.be" in url:
             try:
                 track_info = extract_youtube_info(url)
                 track_info["source"] = "youtube"
+                logger.info(f"Extracted YouTube track info: {track_info}")
             except ValueError as e:
+                logger.error(f"YouTube extraction error: {e}")
                 raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                logger.error(f"Unexpected error during YouTube extraction: {e}")
+                raise HTTPException(status_code=500, detail=f"YouTube extraction failed: {str(e)}")
         else:
-            # For other URLs, use provided info or defaults
             track_info = {
                 "id": f"custom_{len(playlist.get('tracks', []))}_{int(datetime.utcnow().timestamp())}",
                 "title": track_request.title or "Custom Track",
@@ -470,8 +477,8 @@ def add_track_to_playlist(playlist_id: str, track_request: AddTrackRequest):
                 "thumbnail": None,
                 "source": "custom"
             }
-        
-        # Add track to playlist
+            logger.info(f"Custom track info: {track_info}")
+
         result = user_playlists_collection.update_one(
             {"_id": ObjectId(playlist_id)},
             {
@@ -479,13 +486,17 @@ def add_track_to_playlist(playlist_id: str, track_request: AddTrackRequest):
                 "$set": {"updated_at": datetime.utcnow()}
             }
         )
-        
+        logger.info(f"MongoDB update result: {result.raw_result}")
+
         return {
             "success": True,
             "message": "Track added successfully",
             "track": track_info
         }
     except Exception as e:
+        logger.error(f"Error in add_track_to_playlist: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/api/music/user-playlist/{playlist_id}/track/{track_index}")

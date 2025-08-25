@@ -26,12 +26,12 @@ const NoteEditor = () => {
   }, [selectedNote]);
 
   const handleSave = () => {
-    saveNote(userId, { ...selectedNote, title, content });
+    saveNote({ ...selectedNote, title, content });
   };
 
   const handleDelete = () => {
     if (window.confirm("Are you sure you want to delete this note?")) {
-      deleteNote(userId, selectedNote._id);
+      deleteNote(selectedNote._id);
     }
   };
 

@@ -27,7 +27,7 @@ const useReportStore = create((set, get) => ({
       const { title, content, screenshot } = get();
       
       const formData = new FormData();
-      formData.append("user_id", userData.id_number);
+  formData.append("id_number", userData.id_number);
       formData.append("title", title);
       formData.append("content", content);
       if (screenshot) {

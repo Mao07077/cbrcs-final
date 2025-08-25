@@ -54,8 +54,20 @@ const useNotesStore = create((set, get) => ({
         throw new Error("User not authenticated");
       }
 
+      // Ensure noteData is not null and has required fields
+      if (!noteData) {
+        throw new Error("Note data is missing");
+      }
+
+      // If creating a new note, generate a unique _id (timestamp-based)
+      let noteId = noteData._id;
+      if (!noteId) {
+        noteId = Date.now().toString();
+      }
+
       const notePayload = {
         ...noteData,
+        _id: noteId,
         user_id: userData.id_number
       };
 
