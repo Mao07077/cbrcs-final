@@ -1,5 +1,6 @@
 # Google OAuth credentials
 src/backend/client_secret.json
+src/backend/cbrc-470104-2598b873059a.json
 # Logs
 logs
 *.log

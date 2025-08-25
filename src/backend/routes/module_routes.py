@@ -7,25 +7,31 @@ import os
 from typing import Optional
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-from google_auth_oauthlib.flow import InstalledAppFlow
+from google.oauth2 import service_account
 
 
 
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
-CREDENTIALS_FILE = '/etc/secrets/client_secret.json'
+CREDENTIALS_FILE = '/etc/secrets/client_secret.json'  # Update path if needed for Render
+DRIVE_FOLDER_ID = '1KvA0Z0PJ_1n1YN0zRhI8FKfgbt7YayGm'  # Your shared folder ID
 
 router = APIRouter()
 
 def authenticate_drive():
-    flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
-    creds = flow.run_local_server(port=8080)
+    creds = service_account.Credentials.from_service_account_file(
+        CREDENTIALS_FILE, scopes=SCOPES
+    )
     return creds
 
 def upload_pdf_to_drive(file_path, creds):
     service = build('drive', 'v3', credentials=creds)
-    file_metadata = {'name': os.path.basename(file_path)}
+    file_metadata = {
+        'name': os.path.basename(file_path),
+        'parents': [DRIVE_FOLDER_ID]
+    }
     media = MediaFileUpload(file_path, mimetype='application/pdf')
     file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+    # Make file public
     service.permissions().create(fileId=file['id'], body={'role': 'reader', 'type': 'anyone'}).execute()
     link = f"https://drive.google.com/file/d/{file['id']}/view?usp=sharing"
     return link
