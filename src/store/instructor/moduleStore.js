@@ -1,5 +1,5 @@
 import { create } from "zustand";
-
+import apiClient from '../../api/axios';
 
 const useModuleStore = create((set, get) => ({
     modules: [
@@ -37,25 +37,19 @@ const useModuleStore = create((set, get) => ({
     set({ modules, isLoading: false });
   },
 
-  saveModule: (formData) => {
+  saveModule: async (formData) => {
     set({ isLoading: true });
-    const { editingModule, modules } = get();
-    const newModuleData = {
-      _id: editingModule ? editingModule._id : `mod${Date.now()}`,
-      title: formData.get('title'),
-      description: formData.get('description'),
-      subject: formData.get('subject'),
-      file: formData.get('file') ? URL.createObjectURL(formData.get('file')) : (editingModule ? editingModule.file : null),
-    };
-
-    let updatedModules;
-    if (editingModule) {
-      updatedModules = modules.map(m => m._id === editingModule._id ? newModuleData : m);
-    } else {
-      updatedModules = [...modules, newModuleData];
+    try {
+      // Send to backend
+      const response = await apiClient.post('/api/create_module', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      // Fetch all modules from backend after creation
+      const modulesResponse = await apiClient.get('/api/modules');
+      set({ modules: modulesResponse.data, isLoading: false, isModalOpen: false, editingModule: null });
+    } catch (error) {
+      set({ error: error.message, isLoading: false });
     }
-
-    set({ modules: updatedModules, isLoading: false, isModalOpen: false, editingModule: null });
   },
 
   deleteModule: (moduleId) => {
