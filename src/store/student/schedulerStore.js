@@ -97,17 +97,22 @@ const useSchedulerStore = create((set, get) => ({
         throw new Error("User not authenticated");
       }
 
+      // Build payload for ScheduleEntry model
+      // For single event, wrap in schedule array and times array
+      const schedule = [[event.title, event.start.toISOString(), event.end.toISOString()]];
+      const times = [`${event.start.getHours()}:${event.start.getMinutes()}-${event.end.getHours()}:${event.end.getMinutes()}`];
       const eventPayload = {
-        ...event,
-        user_id: userData.id_number
+        id_number: userData.id_number,
+        schedule,
+        times
       };
 
       const savedEvent = await scheduleService.createSchedule(eventPayload);
       set((state) => ({
         events: [...state.events, {
-          ...savedEvent,
-          start: new Date(savedEvent.start),
-          end: new Date(savedEvent.end)
+          ...event,
+          start: new Date(event.start),
+          end: new Date(event.end)
         }],
         isLoading: false
       }));
