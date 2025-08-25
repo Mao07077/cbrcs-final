@@ -1,4 +1,11 @@
-from fastapi import Request
+from fastapi import APIRouter, HTTPException, Query, Request
+from database import users_collection, modules_collection, scores_collection, pre_test_collection, post_test_collection
+from bson import ObjectId
+from config import logger
+from typing import Optional
+
+router = APIRouter()
+
 # Endpoint: Get all modules posted by the instructor
 @router.get("/api/instructor/modules")
 async def get_instructor_modules(request: Request):
@@ -21,13 +28,6 @@ async def get_instructor_modules(request: Request):
         for module in modules
     ]
     return modules_list
-from fastapi import APIRouter, HTTPException, Query
-from database import users_collection, modules_collection, scores_collection, pre_test_collection, post_test_collection
-from bson import ObjectId
-from config import logger
-from typing import Optional
-
-router = APIRouter()
 
 @router.get("/api/dashboard/{id_number}")
 def dashboard(id_number: str):
