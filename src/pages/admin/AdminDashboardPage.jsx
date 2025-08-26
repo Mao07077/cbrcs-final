@@ -2,6 +2,9 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import useAdminDashboardStore from "../../store/admin/adminDashboardStore";
 import StatCard from "../../features/admin/adminDashboard/components/StatCard";
+import AttendanceStats from "../../features/admin/adminDashboard/components/AttendanceStats";
+import PerformanceGraph from "../../features/admin/adminDashboard/components/PerformanceGraph";
+import StudentPerformanceList from "../../features/admin/adminStudentPerformance/components/StudentPerformanceList";
 import UserList from "../../features/admin/adminDashboard/components/UserList";
 
 const AdminDashboardPage = () => {
@@ -45,15 +48,14 @@ const AdminDashboardPage = () => {
         />
       </div>
 
-      {/* User Lists Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <UserList title="Students" users={students} isLoading={isLoading} />
-        <UserList
-          title="Instructors"
-          users={instructors}
-          isLoading={isLoading}
-        />
-      </div>
+  {/* Overall Stats Section */}
+  <AttendanceStats />
+  <PerformanceGraph />
+
+  {/* Student Performance List with PDF Download */}
+  {stats && stats.students && (
+    <StudentPerformanceList students={stats.students} />
+  )}
     </div>
   );
 };

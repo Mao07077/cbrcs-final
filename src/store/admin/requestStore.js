@@ -1,43 +1,27 @@
 import { create } from "zustand";
 
 
+import axios from "../../api/axios";
+
 const useRequestStore = create((set, get) => ({
-    requests: [
-    {
-      _id: "req1",
-      id_number: "2023-0005",
-      firstname: "Mike",
-      lastname: "Ross",
-      email: "mike.ross@example.com",
-      contact_number: "555-123-4567",
-      role: "student",
-      request_type: "update",
-      current_data: { contact_number: "123-456-7890" },
-      update_data: { contact_number: "555-123-4567" },
-      createdAt: new Date("2023-11-20T11:30:00Z"),
-    },
-    {
-      _id: "req2",
-      id_number: "2023-0006",
-      firstname: "Harvey",
-      lastname: "Specter",
-      email: "harvey.specter@example.com",
-      contact_number: "555-987-6543",
-      role: "instructor",
-      request_type: "update",
-      current_data: { email: "harvey.s@example.com" },
-      update_data: { email: "harvey.specter@example.com" },
-      createdAt: new Date("2023-11-18T09:00:00Z"),
-    },
-  ],
+  requests: [],
   selectedRequest: null,
   isLoading: false,
   error: null,
 
   // --- Actions ---
-  fetchRequests: () => {
-    // Mock implementation, data is pre-loaded
-    set({ isLoading: false });
+  fetchRequests: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const response = await axios.get("/api/admin/account-requests");
+      if (response.data.success) {
+        set({ requests: response.data.requests, isLoading: false });
+      } else {
+        throw new Error("Failed to fetch account update requests");
+      }
+    } catch (error) {
+      set({ error: "Failed to fetch account update requests", isLoading: false, requests: [] });
+    }
   },
 
   acceptRequest: (requestId) => {

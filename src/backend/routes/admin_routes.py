@@ -1,8 +1,9 @@
+
+
 from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Dict, Any
 from bson import ObjectId
 from database import get_user_collection, get_reports_collection
-
 router = APIRouter()
 
 @router.get("/api/admin/accounts")
@@ -35,21 +36,29 @@ async def get_reports():
     """Get all reports for admin"""
     try:
         reports_collection = get_reports_collection()
+        user_collection = get_user_collection()
         reports = list(reports_collection.find({}))
-        
-        # Format report data
         formatted_reports = []
         for report in reports:
+            # Try to get student name from user collection if studentId is present
+            student_name = ""
+            if report.get("studentId"):
+                student = user_collection.find_one({"id_number": report["studentId"]})
+                if student:
+                    student_name = f"{student.get('firstname', '')} {student.get('lastname', '')}".strip()
+            # Use student field as fallback
+            if not student_name:
+                student_name = report.get("student", "")
             formatted_reports.append({
                 "_id": str(report["_id"]),
-                "student": report.get("student", ""),
+                "student": student_name,
                 "studentId": report.get("studentId", ""),
                 "issue": report.get("issue", ""),
                 "status": report.get("status", "Pending"),
                 "createdAt": report.get("createdAt"),
-                "messages": report.get("messages", [])
+                "messages": report.get("messages", []),
+                "screenshot": report.get("screenshot", None)
             })
-        
         return {"success": True, "reports": formatted_reports}
     except Exception as e:
         return {"success": False, "error": str(e), "reports": []}
@@ -68,6 +77,104 @@ async def update_report_status(report_id: str, status_data: dict):
             return {"success": True}
         else:
             return {"success": False, "error": "Report not found"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+@router.get("/api/admin/attendance-summary")
+async def get_attendance_summary():
+    """Get overall attendance summary for all students"""
+    try:
+        user_collection = get_user_collection()
+        # Example: Count students with attendance records
+        students = list(user_collection.find({"role": {"$regex": "student", "$options": "i"}}))
+        total_students = len(students)
+        attended = sum(1 for s in students if s.get("attendance", 0) > 0)
+        avg_attendance = (
+            sum(s.get("attendance", 0) for s in students) / total_students if total_students > 0 else 0
+        )
+        return {
+            "success": True,
+            "summary": {
+                "totalStudents": total_students,
+                "attended": attended,
+                "averageAttendance": avg_attendance,
+            },
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+@router.get("/api/admin/performance-summary")
+async def get_performance_summary():
+    """Get overall performance summary for all students"""
+    try:
+        user_collection = get_user_collection()
+        from database import modules_collection, scores_collection, pre_test_collection, post_test_collection
+        students = list(user_collection.find({"role": {"$regex": "student", "$options": "i"}}))
+        total_students = len(students)
+        all_performance = []
+        all_scores = []
+        for s in students:
+            id_number = s.get("id_number", "")
+            name = f"{s.get('firstname', '')} {s.get('lastname', '')}".strip()
+            program = s.get("program", "All Programs")
+            query = {}
+            if program and program != "All Programs":
+                query["program"] = program
+            modules = list(modules_collection.find(query))
+            scores = list(scores_collection.find({"user_id": id_number}))
+            pre_tests = []
+            post_tests = []
+            for module in modules:
+                module_id = str(module["_id"])
+                module_title = module["title"]
+                pre_score = next((sc for sc in scores if sc["module_id"] == module_id and sc.get("test_type") == "pretest"), None)
+                post_score = next((sc for sc in scores if sc["module_id"] == module_id and sc.get("test_type") == "posttest"), None)
+                # Pre-test
+                if pre_score:
+                    pre_test = pre_test_collection.find_one({"module_id": module_id})
+                    pre_test_title = pre_test["title"] if pre_test else f"Pre-Test for {module_title}"
+                    pre_tests.append({
+                        "module_id": module_id,
+                        "pre_test_title": pre_test_title,
+                        "correct": pre_score["correct"],
+                        "incorrect": pre_score["incorrect"],
+                        "total_questions": pre_score["total_questions"],
+                        "score": (pre_score["correct"] / max(pre_score["total_questions"], 1)) * 100,
+                        "time_spent": pre_score.get("time_spent", 0)
+                    })
+                    all_scores.append((pre_score["correct"] / max(pre_score["total_questions"], 1)) * 100)
+                # Post-test
+                if post_score:
+                    post_test = post_test_collection.find_one({"module_id": module_id})
+                    post_test_title = post_test["title"] if post_test else f"Post-Test for {module_title}"
+                    post_tests.append({
+                        "module_id": module_id,
+                        "post_test_title": post_test_title,
+                        "correct": post_score["correct"],
+                        "incorrect": post_score["incorrect"],
+                        "total_questions": post_score["total_questions"],
+                        "score": (post_score["correct"] / max(post_score["total_questions"], 1)) * 100,
+                        "time_spent": post_score.get("time_spent", 0)
+                    })
+                    all_scores.append((post_score["correct"] / max(post_score["total_questions"], 1)) * 100)
+            all_performance.append({
+                "id_number": id_number,
+                "name": name,
+                "program": program,
+                "pre_tests": pre_tests,
+                "post_tests": post_tests,
+            })
+        avg_score = sum(all_scores) / len(all_scores) if all_scores else 0
+        max_score = max(all_scores) if all_scores else 0
+        min_score = min(all_scores) if all_scores else 0
+        return {
+            "success": True,
+            "summary": {
+                "averageScore": avg_score,
+                "maxScore": max_score,
+                "minScore": min_score,
+                "totalStudents": total_students,
+                "students": all_performance
+            },
+        }
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -110,3 +217,27 @@ async def get_student_performance(student_id: str):
         return {"success": True, "details": details}
     except Exception as e:
         return {"success": False, "error": str(e)}
+@router.get("/api/admin/account-requests")
+async def get_account_update_requests():
+    """Get all account update requests for admin"""
+    try:
+        from database import request_collection
+        requests = list(request_collection.find({}))
+        formatted_requests = []
+        for req in requests:
+            formatted_requests.append({
+                "_id": str(req.get("_id")),
+                "id_number": req.get("id_number", ""),
+                "firstname": req.get("firstname", ""),
+                "lastname": req.get("lastname", ""),
+                "email": req.get("email", ""),
+                "contact_number": req.get("contact_number", ""),
+                "role": req.get("role", ""),
+                "request_type": req.get("request_type", ""),
+                "current_data": req.get("current_data", {}),
+                "update_data": req.get("update_data", {}),
+                "createdAt": req.get("createdAt", None),
+            })
+        return {"success": True, "requests": formatted_requests}
+    except Exception as e:
+        return {"success": False, "error": str(e), "requests": []}
