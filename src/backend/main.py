@@ -1,3 +1,4 @@
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -6,6 +7,24 @@ from config import logger
 from database import users_collection, schedule_collection
 from utils import check_schedule_and_notify
 import os
+import datetime as dt
+
+# FastAPI app setup
+app = FastAPI(title="CBRCS API", description="CBRC Students Platform API", version="1.0.0")
+
+# Test endpoint to send a test schedule reminder email to a user by id_number
+@app.get("/test-email/{user_id}")
+async def test_email(user_id: str):
+    """Test endpoint to send a test schedule reminder email to a user by id_number."""
+    from utils import send_reminder_email
+    from database import users_collection, schedule_collection
+    import pytz
+    tz = pytz.timezone('Asia/Manila')
+    now = dt.datetime.now(tz)
+    current_time = now.strftime('%I:%M %p')
+    current_day = now.strftime('%a').upper()
+    send_reminder_email(user_id, "Test Task", current_time, current_day, users_collection, schedule_collection)
+    return {"message": f"Test email sent to user {user_id} (if email exists in DB)"}
 
 # FastAPI app setup
 app = FastAPI(title="CBRCS API", description="CBRC Students Platform API", version="1.0.0")
@@ -111,7 +130,9 @@ from routes.account_routes import router as account_router
 from routes.schedule_routes import router as schedule_router
 from routes.post_routes import router as post_router
 from routes.websocket_routes import router as websocket_router
+from routes.chat_websocket import router as chat_websocket_router
 from routes.misc_routes import router as misc_router
+from routes.paraphrase_routes import router as paraphrase_router
 from routes.study_group_routes import router as study_group_router
 from routes.music_routes import router as music_router
 from routes.landing_routes import router as landing_router
@@ -132,7 +153,9 @@ app.include_router(account_router)
 app.include_router(schedule_router)
 app.include_router(post_router)
 app.include_router(websocket_router)
+app.include_router(chat_websocket_router)
 app.include_router(misc_router)
+app.include_router(paraphrase_router)
 app.include_router(study_group_router)
 app.include_router(music_router)
 app.include_router(landing_router)

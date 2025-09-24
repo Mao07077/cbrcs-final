@@ -1,3 +1,10 @@
+import cloudinary
+import cloudinary.uploader
+cloudinary.config(
+    cloud_name = 'dvdsn3v1l',
+    api_key = '268751277619354',
+    api_secret = 'd9aIRSb6pS083AiBpWRd-EAF62Y'
+)
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, HttpUrl
 from typing import List, Optional, Dict, Any
@@ -68,53 +75,50 @@ def extract_youtube_info(url: str) -> Dict[str, Any]:
             'no_warnings': True,
             'extract_flat': False,
             'ignoreerrors': False,
-            'cookies': 'youtube_cookies.txt',  # Path to your cookies file in backend directory
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }],
+            'outtmpl': 'src/backend/downloads/%(id)s.%(ext)s',
+                'cookiefile': 'src/backend/cookies.txt',  # Path to cookies.txt for restricted videos
         }
-        
+
         print(f"Attempting to extract info for URL: {url}")
-        
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            
+            try:
+                info = ydl.extract_info(url, download=True)
+            except yt_dlp.utils.DownloadError as e:
+                error_msg = str(e)
+                # Check for confirmation/login requirement
+                if "Sign in to confirm you're not a bot" in error_msg or "Use --cookies-from-browser or --cookies" in error_msg:
+                    print("YouTube extraction blocked: confirmation or login required.")
+                    return {
+                        "error": "YouTube is blocking this video for automated access. This video may require login, age confirmation, or is region-restricted. Try another public music link or update yt-dlp/cookies if needed."
+                    }
+                print(f"yt-dlp DownloadError: {error_msg}")
+                return None
+            except Exception as e:
+                print(f"yt-dlp extraction error: {e}")
+                return None
             if not info:
                 print("No info extracted from yt-dlp")
                 return None
-            
             print(f"Video title: {info.get('title', 'Unknown')}")
-            print(f"Available formats: {len(info.get('formats', []))}")
-            
-            # Find the best audio format
-            audio_url = None
-            if 'formats' in info and info['formats']:
-                # Look for audio-only formats first
-                audio_formats = [f for f in info['formats'] if f.get('acodec') != 'none' and f.get('vcodec') == 'none']
-                print(f"Audio-only formats found: {len(audio_formats)}")
-                
-                if audio_formats:
-                    # Get the best quality audio-only format (handle None values)
-                    audio_formats.sort(key=lambda x: x.get('abr') or 0, reverse=True)
-                    audio_url = audio_formats[0]['url']
-                    print(f"Selected audio-only format with bitrate: {audio_formats[0].get('abr', 'unknown')}")
-                else:
-                    # Fallback to best format with audio
-                    audio_formats = [f for f in info['formats'] if f.get('acodec') != 'none']
-                    print(f"Audio formats (with video) found: {len(audio_formats)}")
-                    if audio_formats:
-                        audio_formats.sort(key=lambda x: x.get('abr') or 0, reverse=True)
-                        audio_url = audio_formats[0]['url']
-                        print(f"Selected audio format with bitrate: {audio_formats[0].get('abr', 'unknown')}")
-            
-            # Fallback to the main URL if no specific audio format found
-            if not audio_url:
-                audio_url = info.get('url')
-                print("Using main URL as fallback")
-            
-            if not audio_url:
-                print("No audio URL could be extracted")
+            mp3_path = f"src/backend/downloads/{video_id}.mp3"
+            import os
+            if not os.path.exists(mp3_path):
+                print(f"MP3 file not found: {mp3_path}")
                 return None
-            
-            print(f"Final audio URL length: {len(audio_url) if audio_url else 0}")
-            
+            # Upload to Cloudinary
+            cloudinary_response = cloudinary.uploader.upload(
+                mp3_path,
+                resource_type="video",
+                public_id=f"youtube-audio/{video_id}",
+                format="mp3"
+            )
+            audio_url = cloudinary_response['secure_url']
             result = {
                 'id': video_id,
                 'title': info.get('title', 'Unknown Title'),
@@ -124,10 +128,8 @@ def extract_youtube_info(url: str) -> Dict[str, Any]:
                 'audio_url': audio_url,
                 'original_url': url
             }
-            
-            print(f"Successfully extracted info for: {result['title']}")
+            print(f"Successfully uploaded MP3 to Cloudinary: {result['title']}")
             return result
-            
     except Exception as e:
         print(f"Error extracting YouTube info: {e}")
         import traceback
@@ -246,50 +248,44 @@ def get_youtube_audio_url(url: str):
     """Extract audio stream URL from YouTube video"""
     try:
         print(f"Received YouTube URL: {url}")
-        
-        # Clean and normalize the URL
-        # Remove playlist parameters and other query params except video ID
         import urllib.parse
-        
-        # Parse the URL to clean it
         parsed_url = urllib.parse.urlparse(url)
         
         # Extract video ID from different YouTube URL formats
         video_id = None
-        
+        # Handle youtu.be URLs (may have extra query params)
         if 'youtu.be' in parsed_url.netloc:
-            # Format: https://youtu.be/VIDEO_ID
+            # /VIDEO_ID or /VIDEO_ID?params
             video_id = parsed_url.path.lstrip('/')
+            # Remove any extra params after video ID
+            video_id = video_id.split('?')[0].split('&')[0]
         elif 'youtube.com' in parsed_url.netloc:
-            # Format: https://youtube.com/watch?v=VIDEO_ID
+            # Try to get v param from query string
             query_params = urllib.parse.parse_qs(parsed_url.query)
             video_id = query_params.get('v', [None])[0]
-        
-        if not video_id:
-            print(f"Could not extract video ID from URL: {url}")
-            raise HTTPException(status_code=400, detail="Invalid YouTube URL format")
-        
-        # Clean the video ID (remove any additional parameters)
-        video_id = video_id.split('&')[0].split('?')[0]
+            if video_id:
+                video_id = video_id.split('&')[0].split('?')[0]
+            # If not found, try to extract from path (e.g., /embed/VIDEO_ID)
+            if not video_id:
+                embed_match = re.search(r'/embed/([^/?&]+)', parsed_url.path)
+                if embed_match:
+                    video_id = embed_match.group(1)
+        # Validate video ID
+        if not video_id or len(video_id) != 11:
+            print(f"Could not extract valid video ID from URL: {url} -> {video_id}")
+            raise HTTPException(status_code=400, detail="Invalid YouTube URL format or video ID")
         print(f"Extracted video ID: {video_id}")
-        
-        # Create a clean YouTube URL
         clean_url = f"https://www.youtube.com/watch?v={video_id}"
         print(f"Clean YouTube URL: {clean_url}")
-        
-        # Validate the video ID format (YouTube video IDs are 11 characters)
-        if len(video_id) != 11:
-            print(f"Invalid video ID length: {len(video_id)}")
-            raise HTTPException(status_code=400, detail="Invalid YouTube video ID")
-        
-        # Extract video info and audio stream
         video_info = extract_youtube_info(clean_url)
         if not video_info:
             print("Failed to extract video info")
             raise HTTPException(status_code=400, detail="Failed to extract video information. Video might be private, deleted, or region-restricted.")
-        
+        # If extraction returned an error dict, show user-friendly error
+        if isinstance(video_info, dict) and video_info.get("error"):
+            print(f"YouTube extraction error: {video_info['error']}")
+            raise HTTPException(status_code=400, detail=video_info["error"])
         print(f"Successfully extracted video info: {video_info.get('title', 'Unknown')}")
-        
         return {
             "success": True,
             "video_info": video_info,
@@ -299,6 +295,13 @@ def get_youtube_audio_url(url: str):
             "duration": video_info.get('duration'),
             "thumbnail": video_info.get('thumbnail')
         }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"YouTube audio extraction error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to extract audio from YouTube video: {str(e)}")
         
     except HTTPException:
         raise
@@ -460,10 +463,19 @@ def add_track_to_playlist(playlist_id: str, track_request: AddTrackRequest):
         if "youtube.com" in url or "youtu.be" in url:
             track_info = extract_youtube_info(url)
             if track_info is None:
-                logger.error("YouTube extraction failed: track_info is None")
-                raise HTTPException(status_code=400, detail="YouTube extraction failed: Unable to extract info. This may require authentication/cookies.")
-            track_info["source"] = "youtube"
-            logger.info(f"Extracted YouTube track info: {track_info}")
+                logger.warning("YouTube extraction failed: fallback to custom track.")
+                track_info = {
+                    "id": f"custom_{len(playlist.get('tracks', []))}_{int(datetime.utcnow().timestamp())}",
+                    "title": track_request.title or "Custom Track",
+                    "artist": track_request.artist or "Unknown Artist",
+                    "url": url,
+                    "duration": "0:00",
+                    "thumbnail": None,
+                    "source": "custom"
+                }
+            else:
+                track_info["source"] = "youtube"
+                logger.info(f"Extracted YouTube track info: {track_info}")
         else:
             track_info = {
                 "id": f"custom_{len(playlist.get('tracks', []))}_{int(datetime.utcnow().timestamp())}",

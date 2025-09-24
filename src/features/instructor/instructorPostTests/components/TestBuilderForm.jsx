@@ -1,9 +1,17 @@
 import { useState, useEffect } from "react";
 import usePostTestStore from "../../../../store/instructor/postTestStore";
+import Toast from "../../../../components/common/Toast";
 import QuestionBuilder from "./QuestionBuilder";
 
 const TestBuilderForm = ({ moduleId }) => {
-  const { saveTest, editingTest, closeModal, isLoading } = usePostTestStore();
+  const { saveTest, editingTest, closeModal, isLoading, success, error } = usePostTestStore();
+  // Clear success after showing
+  const handleToastClose = () => {
+    // Zustand exposes setState as a static property
+    if (typeof usePostTestStore.setState === "function") {
+      usePostTestStore.setState({ success: null });
+    }
+  };
   const [title, setTitle] = useState("");
   const [questions, setQuestions] = useState([]);
 
@@ -51,9 +59,11 @@ const TestBuilderForm = ({ moduleId }) => {
   };
 
   return (
-    <div className="bg-white p-8 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-      <h2 className="text-2xl font-bold mb-6">
-        {editingTest ? "Edit Post-Test" : "Create New Post-Test"}
+    <>
+      <Toast message={success} onClose={handleToastClose} />
+      <div className="bg-white p-8 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+  <h2 className="text-2xl font-bold mb-6">
+        {editingTest ? "Edit Pre-Test" : "Create New Pre-Test"}
       </h2>
       <form onSubmit={handleSubmit}>
         <input
@@ -101,7 +111,8 @@ const TestBuilderForm = ({ moduleId }) => {
           </button>
         </div>
       </form>
-    </div>
+      </div>
+    </>
   );
 };
 

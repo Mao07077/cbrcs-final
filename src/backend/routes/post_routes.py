@@ -1,11 +1,86 @@
-from fastapi import APIRouter, HTTPException, Form, File, UploadFile
+
+from fastapi import APIRouter, HTTPException, Form, File, UploadFile, Body
 from database import posts_collection
 from config import logger
 import os
 import shutil
 from typing import Optional
+from fastapi import UploadFile, File
+from bson import ObjectId
 
 router = APIRouter()
+@router.get("/api/admin/posts")
+async def get_admin_posts():
+    posts = list(posts_collection.find({}))
+    for post in posts:
+        post["_id"] = str(post["_id"])
+    return posts
+
+
+
+# Admin: Create a new post (accept FormData, all fields optional)
+
+from typing import Optional
+
+
+
+@router.post("/api/admin/posts")
+async def create_admin_post(
+    title: Optional[str] = Form("") ,
+    content: Optional[str] = Form("") ,
+    image: Optional[UploadFile] = File(None)
+):
+    print(f"DEBUG POST /api/admin/posts: title={title!r}, content={content!r}, image={image}")
+    image_url = ""
+    if image:
+        import cloudinary.uploader, io
+        image_bytes = await image.read()
+        result = cloudinary.uploader.upload(io.BytesIO(image_bytes), folder="post_images")
+        image_url = result["secure_url"]
+    post_data = {
+        "title": title or "",
+        "content": content or "",
+        "createdAt": None,
+        "image": image_url,
+    }
+    from datetime import datetime
+    post_data["createdAt"] = datetime.utcnow()
+    result = posts_collection.insert_one(post_data)
+    post_data["_id"] = str(result.inserted_id)
+    return post_data
+
+
+# Admin: Update a post (accept FormData, all fields optional)
+@router.put("/api/admin/posts/{post_id}")
+async def update_admin_post(
+    post_id: str,
+    title: str = Form(None),
+    content: str = Form(None),
+    image: str = Form(None)
+):
+    update_data = {}
+    if title is not None:
+        update_data["title"] = title
+    if content is not None:
+        update_data["content"] = content
+    if image is not None:
+        update_data["image"] = image
+    if not update_data:
+        return {"success": False, "error": "No fields to update"}
+    result = posts_collection.update_one({"_id": ObjectId(post_id)}, {"$set": update_data})
+    if result.modified_count > 0:
+        return {"success": True}
+    else:
+        return {"success": False, "error": "Post not found"}
+
+# Admin: Delete a post
+@router.delete("/api/admin/posts/{post_id}")
+async def delete_admin_post(post_id: str):
+    result = posts_collection.delete_one({"_id": ObjectId(post_id)})
+    if result.deleted_count > 0:
+        return {"success": True}
+    else:
+        return {"success": False, "error": "Post not found"}
 
 @router.post("/api/save_post")
 async def save_post(

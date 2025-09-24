@@ -2,6 +2,20 @@ import { create } from "zustand";
 
 const usePostTestStore = create((set, get) => ({
   modules: [],
+
+    fetchModules: async () => {
+      try {
+        let baseUrl = import.meta.env.VITE_API_URL || "https://final-cbrc.onrender.com";
+        // Remove trailing slash if present
+        if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+        const response = await fetch(`${baseUrl}/api/instructor/modules`);
+        if (!response.ok) throw new Error('Failed to fetch modules');
+        const data = await response.json();
+        set({ modules: data });
+      } catch (error) {
+        set({ error: error.message });
+      }
+    },
   tests: {},
   editingTest: null,
   isModalOpen: false,
@@ -11,13 +25,15 @@ const usePostTestStore = create((set, get) => ({
   fetchTestsForModule: async (moduleId) => {
     set({ isLoading: true });
     try {
-      const response = await fetch(`/api/posttest/module/${moduleId}`);
+      let baseUrl = import.meta.env.VITE_API_URL || "https://final-cbrc.onrender.com";
+      if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+      const response = await fetch(`${baseUrl}/api/post-test/${moduleId}`);
       if (!response.ok) throw new Error('Failed to fetch post-tests');
       const data = await response.json();
       set((state) => ({
         tests: {
           ...state.tests,
-          [moduleId]: data,
+          [moduleId]: [data],
         },
         isLoading: false,
       }));
@@ -61,27 +77,30 @@ const usePostTestStore = create((set, get) => ({
     set({ isModalOpen: false, editingTest: null });
   },
 
-  saveTest: (testData) => {
-    set((state) => {
-      const { module_id } = testData;
-      const moduleTests = state.tests[module_id] ? [...state.tests[module_id]] : [];
-      const existingTestIndex = moduleTests.findIndex((t) => t._id === testData._id);
-
-      if (existingTestIndex > -1) {
-        // Update existing test
-        moduleTests[existingTestIndex] = testData;
-      } else {
-        // Add new test
-        moduleTests.push(testData);
-      }
-
-      return {
-        tests: {
-          ...state.tests,
-          [module_id]: moduleTests,
+  saveTest: async (testData) => {
+    const { module_id, title, questions } = testData;
+    let baseUrl = import.meta.env.VITE_API_URL || "https://final-cbrc.onrender.com";
+    if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+    set({ isLoading: true, error: null, success: null });
+    try {
+      const res = await fetch(`${baseUrl}/createposttest/${module_id}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
-      };
-    });
+        body: JSON.stringify({ title, questions }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        // Refetch post-tests for the module
+        await get().fetchTestsForModule(module_id);
+        set({ success: "Post-test saved successfully!", isLoading: false, isModalOpen: false, editingTest: null });
+      } else {
+        set({ error: data.message || "Failed to save post-test", isLoading: false });
+      }
+    } catch (error) {
+      set({ error: error.message || "Failed to save post-test", isLoading: false });
+    }
   },
 
   deleteTest: (testId, moduleId) => {

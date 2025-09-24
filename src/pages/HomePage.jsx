@@ -1,6 +1,8 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
+import Modal from "../components/common/Modal";
 import { useLocation, Link as RouterLink } from "react-router-dom";
 import { Element, scroller } from 'react-scroll';
+import apiClient from "../api/axiosClient";
 import { FiBookOpen, FiEdit, FiUsers, FiTrendingUp, FiAward, FiMessageCircle } from 'react-icons/fi';
 import HeroBg from '../assets/images/hero_landing_page_bg.jpg';
 import useLandingStore from "../store/landingStore";
@@ -25,6 +27,26 @@ const HomePage = () => {
       });
     }
   }, [location]);
+
+  const [adminPosts, setAdminPosts] = useState([]);
+  const [postsLoading, setPostsLoading] = useState(true);
+  const [selectedPost, setSelectedPost] = useState(null);
+
+  useEffect(() => {
+    async function fetchPosts() {
+      try {
+        const res = await apiClient.get("/api/admin/posts");
+        // Sort posts by createdAt descending (latest first)
+        const sorted = res.data.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        setAdminPosts(sorted);
+      } catch (err) {
+        setAdminPosts([]);
+      } finally {
+        setPostsLoading(false);
+      }
+    }
+    fetchPosts();
+  }, []);
 
   if (isLoading || !landingPageData) {
     return (
@@ -86,6 +108,44 @@ const HomePage = () => {
             <h2 className="text-3xl sm:text-4xl font-bold text-gray-900">Why Choose CBRCS?</h2>
             <p className="mt-4 text-lg text-gray-600">Everything you need to ace your exams, all in one place.</p>
           </div>
+            {/* Admin News/Posts Section */}
+            <section className="container mx-auto px-6 py-12">
+              <h2 className="text-2xl font-bold mb-6">Latest News & Announcements</h2>
+              {postsLoading ? (
+                <div className="text-gray-500">Loading posts...</div>
+              ) : adminPosts.length === 0 ? (
+                <div className="text-gray-500">No posts available.</div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {adminPosts.map((post) => {
+                    // Get preview: first 120 chars, strip HTML tags
+                    const preview = post.content.replace(/<[^>]+>/g, "").slice(0, 120) + (post.content.replace(/<[^>]+>/g, "").length > 120 ? "..." : "");
+                    return (
+                      <div key={post._id} className="bg-white rounded-lg shadow-md p-4 border cursor-pointer" onClick={() => setSelectedPost(post)}>
+                        {post.image && (
+                          <img src={post.image} alt={post.title} className="w-full h-40 object-cover rounded mb-3" />
+                        )}
+                        <h3 className="text-lg font-semibold mb-2">{post.title}</h3>
+                        <p className="text-gray-700 mb-2">{preview}</p>
+                        <div className="text-xs text-gray-500">{post.createdAt ? new Date(post.createdAt).toLocaleString() : "No date"}</div>
+                      </div>
+                    );
+                  })}
+      {/* Post Modal for full content */}
+      <Modal isOpen={!!selectedPost} onClose={() => setSelectedPost(null)} title={selectedPost?.title || ""}>
+        {selectedPost && (
+          <div>
+            {selectedPost.image && (
+              <img src={selectedPost.image} alt={selectedPost.title} className="w-full h-40 object-cover rounded mb-3" />
+            )}
+            <div className="mb-2 text-xs text-gray-500">{selectedPost.createdAt ? new Date(selectedPost.createdAt).toLocaleString() : "No date"}</div>
+            <div className="text-gray-700" dangerouslySetInnerHTML={{ __html: selectedPost.content }} />
+          </div>
+        )}
+      </Modal>
+                </div>
+              )}
+            </section>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">
             {features.map((feature, index) => (
               <div key={index} className="text-center p-8 bg-gray-50 rounded-xl shadow-md hover:shadow-xl hover:-translate-y-2 transition-all duration-300">
@@ -133,51 +193,6 @@ const HomePage = () => {
         </div>
       </Element>
 
-      {/* News Section */}
-      <Element name="news" className="py-20 sm:py-24 bg-gray-50">
-        <div className="container mx-auto px-6">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl sm:text-4xl font-bold text-gray-900">{news.header}</h2>
-            <p className="mt-4 text-lg text-gray-600">{news.title}</p>
-          </div>
-          <div className="text-center text-gray-500">
-            <p className="italic">{news.content}</p>
-          </div>
-          {news.newsImage && (
-            <div className="flex justify-center mt-6">
-              <img src={news.newsImage} alt="News" className="max-w-md rounded-lg shadow" />
-            </div>
-          )}
-        </div>
-      </Element>
-
-      {/* Posts Section */}
-      {posts && posts.length > 0 && (
-        <Element name="posts" className="py-20 sm:py-24 bg-white">
-          <div className="container mx-auto px-6">
-            <div className="text-center mb-16">
-              <h2 className="text-3xl sm:text-4xl font-bold text-gray-900">Latest Announcements</h2>
-              <p className="mt-4 text-lg text-gray-600">Stay updated with the latest posts from the admin team.</p>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">
-              {posts.map((post, idx) => (
-                <div key={post._id || idx} className="bg-gray-50 rounded-xl shadow-md hover:shadow-xl hover:-translate-y-2 transition-all duration-300 overflow-hidden">
-                  {post.image && (
-                    <img src={post.image} alt={post.title} className="w-full h-48 object-cover" />
-                  )}
-                  <div className="p-6">
-                    <h3 className="text-xl font-bold mb-2 text-gray-900">{post.title}</h3>
-                    <p className="text-gray-600 mb-2">{post.content}</p>
-                    <span className="inline-block bg-accent-light text-accent-dark text-xs font-semibold px-2 py-1 rounded-full">
-                      {post.createdAt ? new Date(post.createdAt).toLocaleDateString() : ""}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </Element>
-      )}
     </div>
   );
 }

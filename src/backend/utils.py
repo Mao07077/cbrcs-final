@@ -12,6 +12,7 @@ import asyncio
 import ollama
 import logging
 from datetime import datetime
+import pytz
 from fastapi import HTTPException
 from config import EMAIL_HOST, EMAIL_PORT, EMAIL_HOST_USER, EMAIL_HOST_PASSWORD, logger
 from models import Flashcard
@@ -148,8 +149,23 @@ def send_reminder_email(user_id, task, current_time, current_day, users_collecti
     if not user:
         return
     user_email = user["email"]
-    subject = f"Reminder: Task '{task}' at {current_time} on {current_day}"
-    body = f"Dear {user['firstname']} {user['lastname']},\n\nThis is a reminder for your task '{task}' scheduled for {current_time} on {current_day}.\n\nBest regards,\nYour Study Schedule App"
+    subject = f"⏰ CBRC Scheduler Reminder: '{task}' Today at {current_time}"
+    body = f"""
+Hi {user['firstname']} {user['lastname']},
+
+This is a friendly reminder from your CBRC Scheduler!
+
+You have a scheduled event:
+    📅 Task: {task}
+    🕒 Time: {current_time} ({current_day})
+
+Don't forget to prepare and be on time. Good luck with your studies!
+
+If you have any questions or need to reschedule, just log in to your CBRC account.
+
+Best regards,
+CBRC Students Platform
+"""
     message = MIMEText(body)
     message['From'] = EMAIL_HOST_USER
     message['To'] = user_email
@@ -164,19 +180,33 @@ def send_reminder_email(user_id, task, current_time, current_day, users_collecti
         logger.error(f"Error sending email: {e}")
 
 def check_schedule_and_notify(users_collection, schedule_collection):
-    current_time = datetime.now().strftime('%I:%M %p')
-    current_day = datetime.now().strftime('%a').upper()
+    tz = pytz.timezone('Asia/Manila')
+    now = datetime.now(tz)
+    current_time = now.strftime('%I:%M %p')
+    current_day = now.strftime('%a').upper()
+    logger.info(f"[Scheduler] Running at PH time {current_time} {current_day}")
     schedules = schedule_collection.find()
     daysOfWeek = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
     for schedule in schedules:
         user_id = schedule["id_number"]
         times = schedule["times"]
         schedule_data = schedule["schedule"]
-        for i, time in enumerate(times):
-            if time == current_time:
-                for j, day in enumerate(schedule_data[i]):
-                    if day and day != '0' and daysOfWeek[j] == current_day:
-                        send_reminder_email(user_id, day, current_time, current_day, users_collection, schedule_collection)
+        logger.info(f"[Scheduler] Checking user {user_id} times: {times} schedule: {schedule_data}")
+        # Loop through each event in the schedule array
+        for i, event in enumerate(schedule_data):
+            if not event or len(event) < 2:
+                continue
+            task = event[0]
+            start_iso = event[1]
+            try:
+                start_dt = datetime.fromisoformat(start_iso.replace('Z', '+00:00')).astimezone(tz)
+                event_time_str = start_dt.strftime('%I:%M %p')
+            except Exception as e:
+                logger.error(f"[Scheduler] Error parsing start time for user {user_id}: {e}")
+                continue
+            if event_time_str == current_time:
+                logger.info(f"[Scheduler] Sending reminder for user {user_id} task '{task}' at {current_time} {current_day}")
+                send_reminder_email(user_id, task, current_time, current_day, users_collection, schedule_collection)
 
 async def paraphrase_question_with_ollama(original_question: str, correct_answer: str, wrong_answers: List[str]) -> Dict[str, Any]:
     """

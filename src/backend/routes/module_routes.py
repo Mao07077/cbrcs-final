@@ -1,3 +1,77 @@
+from fastapi import APIRouter, HTTPException, Query, Form, File, UploadFile
+from database import modules_collection, post_test_collection
+from bson import ObjectId
+from config import logger
+import os
+from typing import Optional
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+
+router = APIRouter()
+@router.get("/api/instructor/modules")
+def get_instructor_modules():
+    modules = list(modules_collection.find({}))
+    for module in modules:
+        module["_id"] = str(module["_id"])
+    return modules
+
+# Edit (update) module endpoint
+@router.put("/api/modules/{module_id}")
+async def update_module(
+    module_id: str,
+    title: str = Form(...),
+    topic: str = Form(...),
+    description: str = Form(...),
+    program: str = Form(...),
+    id_number: str = Form(...),
+    document: UploadFile = File(None),
+    picture: UploadFile = File(None),
+):
+    try:
+        update_data = {
+            "title": title,
+            "topic": topic,
+            "description": description,
+            "program": program,
+            "id_number": id_number,
+        }
+        # If new document uploaded, upload to Cloudinary as raw (public PDF)
+        if document:
+            import cloudinary.uploader, io
+            pdf_bytes = await document.read()
+            filename = document.filename if document.filename.lower().endswith('.pdf') else document.filename + '.pdf'
+            public_id = filename
+            pdf_result = cloudinary.uploader.upload(
+                io.BytesIO(pdf_bytes),
+                folder="module_pdfs",
+                resource_type="raw",
+                public_id=public_id,
+                format="pdf"
+            )
+            document_url = pdf_result["secure_url"] + '?attachment=false'
+            update_data["document_url"] = document_url
+        # If new picture uploaded, upload to Cloudinary
+        if picture:
+            import cloudinary.uploader, io
+            picture_bytes = await picture.read()
+            picture_result = cloudinary.uploader.upload(
+                io.BytesIO(picture_bytes),
+                folder="module_pics",
+                type="upload",
+                resource_type="auto"
+            )
+            picture_url = picture_result["secure_url"]
+            update_data["image_url"] = picture_url
+        result = modules_collection.update_one({"_id": ObjectId(module_id)}, {"$set": update_data})
+        if result.modified_count > 0:
+            return {"success": True, "message": "Module updated successfully!"}
+        raise HTTPException(status_code=404, detail="Module not found or no changes made.")
+    except Exception as e:
+        logger.error(f"Error updating module: {e}")
+        raise HTTPException(status_code=500, detail="Module update failed")
 
 from fastapi import APIRouter, HTTPException, Query, Form, File, UploadFile
 from database import modules_collection, post_test_collection
@@ -7,20 +81,74 @@ import os
 from typing import Optional
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-from google.oauth2 import service_account
+from google_auth_oauthlib.flow import InstalledAppFlow
 
 
 
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
-CREDENTIALS_FILE = '/etc/secrets/client_secret.json'  # Update path if needed for Render
+CREDENTIALS_FILE = 'client_secret.json'  # Use OAuth2 client secret file
 DRIVE_FOLDER_ID = '1KvA0Z0PJ_1n1YN0zRhI8FKfgbt7YayGm'  # Your shared folder ID
 
+
 router = APIRouter()
+# Edit (update) module endpoint
+@router.put("/api/modules/{module_id}")
+async def update_module(
+    module_id: str,
+    title: str = Form(...),
+    topic: str = Form(...),
+    description: str = Form(...),
+    program: str = Form(...),
+    id_number: str = Form(...),
+    document: UploadFile = File(None),
+    picture: UploadFile = File(None),
+):
+    try:
+        update_data = {
+            "title": title,
+            "topic": topic,
+            "description": description,
+            "program": program,
+            "id_number": id_number,
+        }
+        # If new document uploaded, upload to Drive
+        if document:
+            import cloudinary.uploader, io
+            pdf_bytes = await document.read()
+            filename = document.filename if document.filename.lower().endswith('.pdf') else document.filename + '.pdf'
+            public_id = filename
+            pdf_result = cloudinary.uploader.upload(
+                io.BytesIO(pdf_bytes),
+                folder="module_pdfs",
+                resource_type="raw",
+                public_id=public_id,
+                format="pdf"
+            )
+            document_url = pdf_result["secure_url"] + '?attachment=false'
+            update_data["document_url"] = document_url
+        # If new picture uploaded, upload to Cloudinary
+        if picture:
+            import cloudinary.uploader, io
+            picture_bytes = await picture.read()
+            picture_result = cloudinary.uploader.upload(
+                io.BytesIO(picture_bytes),
+                folder="module_pics",
+                type="upload",
+                resource_type="auto"
+            )
+            picture_url = picture_result["secure_url"]
+            update_data["image_url"] = picture_url
+        result = modules_collection.update_one({"_id": ObjectId(module_id)}, {"$set": update_data})
+        if result.modified_count > 0:
+            return {"success": True, "message": "Module updated successfully!"}
+        raise HTTPException(status_code=404, detail="Module not found or no changes made.")
+    except Exception as e:
+        logger.error(f"Error updating module: {e}")
+        raise HTTPException(status_code=500, detail="Module update failed")
 
 def authenticate_drive():
-    creds = service_account.Credentials.from_service_account_file(
-        CREDENTIALS_FILE, scopes=SCOPES
-    )
+    flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
+    creds = flow.run_local_server(port=0)
     return creds
 
 def upload_pdf_to_drive(file_path, creds):
@@ -47,20 +175,21 @@ async def create_module(
     picture: UploadFile = File(...),
 ):
     try:
-        # Save PDF temporarily
-        temp_pdf_path = f"uploads/{document.filename}"
-        with open(temp_pdf_path, "wb") as f:
-            f.write(await document.read())
-
-        # Authenticate and upload to Google Drive
-        creds = authenticate_drive()
-        document_url = upload_pdf_to_drive(temp_pdf_path, creds)
-
-        # Remove temp file
-        os.remove(temp_pdf_path)
+        # Upload PDF to Cloudinary as raw (public PDF)
+        import cloudinary.uploader, io
+        pdf_bytes = await document.read()
+        filename = document.filename if document.filename.lower().endswith('.pdf') else document.filename + '.pdf'
+        public_id = filename[:-4] if filename.lower().endswith('.pdf') else filename
+        pdf_result = cloudinary.uploader.upload(
+            io.BytesIO(pdf_bytes),
+            folder="module_pdfs",
+            resource_type="raw",
+            public_id=public_id,
+            format="pdf"
+        )
+        document_url = pdf_result["secure_url"] + '?attachment=false'
 
         # Upload picture to Cloudinary (keep existing logic)
-        import cloudinary.uploader, io
         picture_bytes = await picture.read()
         picture_result = cloudinary.uploader.upload(
             io.BytesIO(picture_bytes),

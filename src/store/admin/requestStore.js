@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 
-import axios from "../../api/axios";
+import axios from "../../api/axiosClient";
 
 const useRequestStore = create((set, get) => ({
   requests: [],
@@ -24,29 +24,50 @@ const useRequestStore = create((set, get) => ({
     }
   },
 
-  acceptRequest: (requestId) => {
+  acceptRequest: async (requestId) => {
     set({ isLoading: true });
-    setTimeout(() => {
-      set((state) => ({
-        requests: state.requests.filter((r) => r._id !== requestId),
-        isLoading: false,
-        selectedRequest: null,
-      }));
-    }, 500);
+    try {
+      const response = await axios.post(`/api/admin/account-requests/${requestId}/accept`);
+      if (response.data.success) {
+        await get().fetchRequests();
+        set({ isLoading: false, selectedRequest: null });
+      } else {
+        set({ isLoading: false });
+        alert('Failed to accept request');
+      }
+    } catch (error) {
+      set({ isLoading: false });
+      if (error?.response?.status === 404) {
+        alert('Request not found. It may have already been processed.');
+        await get().fetchRequests();
+      } else {
+        alert('Failed to accept request');
+      }
+    }
   },
 
-  declineRequest: (requestId) => {
+  declineRequest: async (requestId) => {
     if (!window.confirm("Are you sure you want to decline this request?"))
       return;
-
     set({ isLoading: true });
-    setTimeout(() => {
-      set((state) => ({
-        requests: state.requests.filter((r) => r._id !== requestId),
-        isLoading: false,
-        selectedRequest: null,
-      }));
-    }, 500);
+    try {
+      const response = await axios.post(`/api/admin/account-requests/${requestId}/decline`);
+      if (response.data.success) {
+        await get().fetchRequests();
+        set({ isLoading: false, selectedRequest: null });
+      } else {
+        set({ isLoading: false });
+        alert('Failed to decline request');
+      }
+    } catch (error) {
+      set({ isLoading: false });
+      if (error?.response?.status === 404) {
+        alert('Request not found. It may have already been processed.');
+        await get().fetchRequests();
+      } else {
+        alert('Failed to decline request');
+      }
+    }
   },
 
   // --- Modal Control ---

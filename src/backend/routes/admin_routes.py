@@ -1,10 +1,193 @@
 
+# Student: Get study activity report
+
+from fastapi import APIRouter, Body, HTTPException, Depends
+from pydantic import BaseModel
+from typing import List, Dict, Any
+from bson import ObjectId
+from database import get_user_collection, get_reports_collection, posts_collection
+
+
+# Account Update Requests Models
+class AccountUpdateRequest(BaseModel):
+    _id: str
+    id_number: str
+    update_data: dict
+
+router = APIRouter()
+
+
+
+# Fetch account update requests with current user data
+@router.get("/api/admin/account-requests")
+async def get_account_update_requests():
+    user_collection = get_user_collection()
+    from database import account_update_requests_collection
+    requests = list(account_update_requests_collection.find({}))
+    result = []
+    for req in requests:
+        user = user_collection.find_one({"id_number": req["id_number"]})
+        # Support both update_data and requested_changes
+        changes = req.get("update_data") or req.get("requested_changes") or {}
+        req_data = {
+            "_id": str(req["_id"]),
+            "id_number": req["id_number"],
+            "update_data": changes,
+        }
+        # Add current values for each requested field
+        if user:
+            for field in changes.keys():
+                req_data[field] = user.get(field, "N/A")
+            # Always include firstname and lastname for modal display
+            req_data["firstname"] = user.get("firstname", "N/A")
+            req_data["lastname"] = user.get("lastname", "N/A")
+            req_data["program"] = user.get("program", "N/A")
+        result.append(req_data)
+    return {"success": True, "requests": result}
+
+# Student: Submit account update request
+@router.post("/api/admin/account-requests")
+async def submit_account_update_request(id_number: str = Body(...), update_data: dict = Body(...)):
+    from database import account_update_requests_collection
+    # Check for existing request for this user
+    existing = account_update_requests_collection.find_one({"id_number": id_number})
+    if existing:
+        raise HTTPException(status_code=400, detail="Request already exists for this user.")
+    req = {
+        "id_number": id_number,
+        "update_data": update_data
+    }
+    result = account_update_requests_collection.insert_one(req)
+    req["_id"] = str(result.inserted_id)
+    return {"success": True, "request": req}
+
+# Accept account update request
+@router.post("/api/admin/account-requests/{request_id}/accept")
+async def accept_account_update_request(request_id: str):
+    print(f"[ACCEPT] Incoming request_id: {request_id}")
+    from database import account_update_requests_collection, get_user_collection
+    all_ids = [str(r['_id']) for r in account_update_requests_collection.find({})]
+    print(f"[ACCEPT] All request IDs in DB: {all_ids}")
+    from database import account_update_requests_collection, get_user_collection
+    # Always find by string _id
+    req = account_update_requests_collection.find_one({"_id": request_id})
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    user_collection = get_user_collection()
+    changes = req.get("update_data") or req.get("requested_changes") or {}
+    user_collection.update_one({"id_number": req["id_number"]}, {"$set": changes})
+    # Remove request
+    deleted = account_update_requests_collection.delete_one({"_id": request_id})
+    if deleted.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Request not found (delete)")
+    return {"success": True}
+
+# Decline account update request
+@router.post("/api/admin/account-requests/{request_id}/decline")
+async def decline_account_update_request(request_id: str):
+    print(f"[DECLINE] Incoming request_id: {request_id}")
+    from database import account_update_requests_collection
+    all_ids = [str(r['_id']) for r in account_update_requests_collection.find({})]
+    print(f"[DECLINE] All request IDs in DB: {all_ids}")
+    from database import account_update_requests_collection
+    # Always delete by string _id
+    result = account_update_requests_collection.delete_one({"_id": request_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Request not found")
+    return {"success": True}
+from fastapi import APIRouter, Body, HTTPException, Depends
+from pydantic import BaseModel
+from typing import List, Dict, Any
+from bson import ObjectId
+from database import get_user_collection, get_reports_collection, posts_collection
+
+class StatusUpdate(BaseModel):
+    status: str
+
+# Admin: Get all posts
+@router.get("/api/admin/posts")
+async def get_admin_posts():
+    posts = list(posts_collection.find({}))
+    for post in posts:
+        post["_id"] = str(post["_id"])
+    return posts
+
+# Admin: Create a new post
+@router.post("/api/admin/posts")
+async def create_admin_post(title: str = Body(...), content: str = Body(...), image: str = Body(None)):
+    post_data = {
+        "title": title,
+        "content": content,
+        "createdAt": None,
+        "image": image,
+    }
+    from datetime import datetime
+    post_data["createdAt"] = datetime.utcnow()
+    result = posts_collection.insert_one(post_data)
+    post_data["_id"] = str(result.inserted_id)
+    return post_data
+
+# Admin: Update a post
+@router.put("/api/admin/posts/{post_id}")
+async def update_admin_post(post_id: str, title: str = Body(None), content: str = Body(None), image: str = Body(None)):
+    update_data = {}
+    if title is not None:
+        update_data["title"] = title
+    if content is not None:
+        update_data["content"] = content
+    if image is not None:
+        update_data["image"] = image
+    result = posts_collection.update_one({"_id": ObjectId(post_id)}, {"$set": update_data})
+    if result.modified_count > 0:
+        return {"success": True}
+    else:
+        return {"success": False, "error": "Post not found"}
+
+# Admin: Delete a post
+@router.delete("/api/admin/posts/{post_id}")
+async def delete_admin_post(post_id: str):
+    result = posts_collection.delete_one({"_id": ObjectId(post_id)})
+    if result.deleted_count > 0:
+        return {"success": True}
+    else:
+        return {"success": False, "error": "Post not found"}
+
 
 from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Dict, Any
 from bson import ObjectId
 from database import get_user_collection, get_reports_collection
+
 router = APIRouter()
+
+@router.get("/api/admin/dashboard")
+async def get_admin_dashboard():
+    user_collection = get_user_collection()
+    reports_collection = get_reports_collection()
+    import datetime
+    today = datetime.datetime.now()
+    start_of_week = today - datetime.timedelta(days=today.weekday())
+    end_of_week = start_of_week + datetime.timedelta(days=6)
+    total_users = user_collection.count_documents({})
+    total_students = user_collection.count_documents({"role": {"$regex": "^student$", "$options": "i"}})
+    total_instructors = user_collection.count_documents({"role": {"$regex": "^instructor$", "$options": "i"}})
+    total_admins = user_collection.count_documents({"role": {"$regex": "^admin$", "$options": "i"}})
+    reports_this_week = reports_collection.count_documents({
+        "createdAt": {
+            "$gte": start_of_week,
+            "$lte": end_of_week
+        }
+    })
+    return {
+        "success": True,
+        "stats": {
+            "totalUsers": total_users,
+            "totalStudents": total_students,
+            "totalInstructors": total_instructors,
+            "totalAdmins": total_admins,
+            "reportsThisWeek": reports_this_week
+        }
+    }
 
 @router.get("/api/admin/accounts")
 async def get_accounts():
@@ -40,37 +223,29 @@ async def get_reports():
         reports = list(reports_collection.find({}))
         formatted_reports = []
         for report in reports:
-            # Try to get student name from user collection if studentId is present
-            student_name = ""
-            if report.get("studentId"):
-                student = user_collection.find_one({"id_number": report["studentId"]})
-                if student:
-                    student_name = f"{student.get('firstname', '')} {student.get('lastname', '')}".strip()
-            # Use student field as fallback
-            if not student_name:
-                student_name = report.get("student", "")
+            # Map MongoDB fields to frontend fields
             formatted_reports.append({
                 "_id": str(report["_id"]),
-                "student": student_name,
-                "studentId": report.get("studentId", ""),
-                "issue": report.get("issue", ""),
-                "status": report.get("status", "Pending"),
-                "createdAt": report.get("createdAt"),
-                "messages": report.get("messages", []),
-                "screenshot": report.get("screenshot", None)
+                "student": report.get("id_number", ""),
+                "studentId": report.get("id_number", ""),
+                "issue": report.get("title", ""),
+                "status": "Pending",  # Default, since not in DB
+                "createdAt": report.get("created_at", None),
+                "messages": [report.get("content", "")] if report.get("content") else [],
+                "screenshot": report.get("screenshot_url", None)
             })
         return {"success": True, "reports": formatted_reports}
     except Exception as e:
         return {"success": False, "error": str(e), "reports": []}
 
 @router.put("/api/admin/reports/{report_id}")
-async def update_report_status(report_id: str, status_data: dict):
+async def update_report_status(report_id: str, status_data: StatusUpdate):
     """Update report status"""
     try:
         reports_collection = get_reports_collection()
         result = reports_collection.update_one(
             {"_id": ObjectId(report_id)},
-            {"$set": {"status": status_data.get("status")}}
+            {"$set": {"status": status_data.status}}
         )
         
         if result.modified_count > 0:
@@ -196,24 +371,49 @@ async def delete_report(report_id: str):
 async def get_student_performance(student_id: str):
     """Get detailed student performance data"""
     try:
-        # This would typically fetch from multiple collections
-        # For now, returning mock structure that matches frontend expectations
+        from database import scores_collection, pre_test_collection, post_test_collection, modules_collection, get_user_collection
+        user_collection = get_user_collection()
+        student = user_collection.find_one({"id_number": student_id})
+        if not student:
+            return {"success": False, "error": "Student not found"}
+        modules = list(modules_collection.find({}))
+        scores = list(scores_collection.find({"user_id": student_id}))
+        preTests = []
+        postTests = []
+        for module in modules:
+            module_id = str(module["_id"])
+            module_title = module["title"]
+            pre_score = next((sc for sc in scores if sc["module_id"] == module_id and sc.get("test_type") == "pretest"), None)
+            post_score = next((sc for sc in scores if sc["module_id"] == module_id and sc.get("test_type") == "posttest"), None)
+            if pre_score:
+                pre_test = pre_test_collection.find_one({"module_id": module_id})
+                pre_test_title = pre_test["title"] if pre_test else f"Pre-Test for {module_title}"
+                preTests.append({
+                    "module_id": module_id,
+                    "pre_test_title": pre_test_title,
+                    "correct": pre_score["correct"],
+                    "incorrect": pre_score["incorrect"],
+                    "total_questions": pre_score["total_questions"],
+                    "score": (pre_score["correct"] / max(pre_score["total_questions"], 1)) * 100,
+                    "time_spent": pre_score.get("time_spent", 0)
+                })
+            if post_score:
+                post_test = post_test_collection.find_one({"module_id": module_id})
+                post_test_title = post_test["title"] if post_test else f"Post-Test for {module_title}"
+                postTests.append({
+                    "module_id": module_id,
+                    "post_test_title": post_test_title,
+                    "correct": post_score["correct"],
+                    "incorrect": post_score["incorrect"],
+                    "total_questions": post_score["total_questions"],
+                    "score": (post_score["correct"] / max(post_score["total_questions"], 1)) * 100,
+                    "time_spent": post_score.get("time_spent", 0)
+                })
         details = {
-            "preTests": [
-                {"subject": "Mathematics", "score": 75, "total": 100, "date": "2023-09-01"},
-                {"subject": "Science", "score": 80, "total": 100, "date": "2023-09-01"},
-                {"subject": "English", "score": 85, "total": 100, "date": "2023-09-01"},
-            ],
-            "postTests": [
-                {"subject": "Mathematics", "score": 88, "total": 100, "date": "2023-11-15"},
-                {"subject": "Science", "score": 90, "total": 100, "date": "2023-11-15"},
-            ],
-            "studyHabits": [
-                {"page": "Algebra II", "reason": "Struggled with quadratic equations"},
-                {"page": "Grammar Basics", "reason": "Frequent errors in sentence structure"},
-            ],
+            "preTests": preTests,
+            "postTests": postTests,
+            "studyHabits": [] # Add real study habits if available
         }
-        
         return {"success": True, "details": details}
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -241,3 +441,21 @@ async def get_account_update_requests():
         return {"success": True, "requests": formatted_requests}
     except Exception as e:
         return {"success": False, "error": str(e), "requests": []}
+    
+@router.get("/api/student/{id_number}/study-activity-report")
+async def get_study_activity_report(id_number: str):
+    from database import notes_collection, flashcards_collection, study_sessions_collection
+    notes_count = notes_collection.count_documents({"id_number": id_number})
+    notes = list(notes_collection.find({"id_number": id_number}, {"_id": 0, "title": 1, "created_at": 1}))
+    flashcards_count = flashcards_collection.count_documents({"id_number": id_number})
+    flashcards = list(flashcards_collection.find({"id_number": id_number}, {"_id": 0, "question": 1, "created_at": 1}))
+    sessions_count = study_sessions_collection.count_documents({"id_number": id_number})
+    sessions = list(study_sessions_collection.find({"id_number": id_number}, {"_id": 0, "topic": 1, "created_at": 1}))
+    return {
+        "notes_count": notes_count,
+        "notes": notes,
+        "flashcards_count": flashcards_count,
+        "flashcards": flashcards,
+        "sessions_count": sessions_count,
+        "study_sessions": sessions
+    }

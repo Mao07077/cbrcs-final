@@ -51,13 +51,14 @@ const CreatePlaylist = ({ isOpen, onClose, onSuccess }) => {
       return;
     }
 
+    const isYouTube = newTrack.url.includes('youtube.com') || newTrack.url.includes('youtu.be');
     const track = {
-      id: `custom_${Date.now()}`,
+      id: `${isYouTube ? 'youtube' : 'custom'}_${Date.now()}`,
       title: newTrack.title.trim(),
       artist: newTrack.artist.trim(),
       url: newTrack.url.trim(),
       duration: "0:00",
-      source: newTrack.url.includes('youtube.com') || newTrack.url.includes('youtu.be') ? 'youtube' : 'custom'
+      source: isYouTube ? 'youtube' : 'custom'
     };
 
     setFormData(prev => ({
@@ -121,6 +122,25 @@ const CreatePlaylist = ({ isOpen, onClose, onSuccess }) => {
     setNewTrack({ url: '', title: '', artist: '' });
     setErrors({});
     onClose();
+  };
+
+  // When adding a track to playlist, send only url, title, artist, and log payload
+  const handleAddTrackToPlaylist = async (playlistId, track) => {
+    const payload = {
+      url: track.url,
+      title: track.title,
+      artist: track.artist
+    };
+    console.log('Add track payload:', payload);
+    // Check for empty or invalid URL
+    if (!payload.url || typeof payload.url !== 'string' || !/^https?:\/\//.test(payload.url)) {
+      alert('Track URL must be a valid http(s) URL.');
+      return;
+    }
+    const result = await useMusicPlayerStore.getState().addTrackToPlaylist(playlistId, payload);
+    if (!result) {
+      alert('Failed to add track. Please check the URL and try again.');
+    }
   };
 
   if (!isOpen) return null;

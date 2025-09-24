@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+// Replace with your actual API key
+const YOUTUBE_API_KEY = "AIzaSyAvffXaVLQLwNAyi7yMLCvbU028xC9UWiI";
 import { Play, Pause, Plus, Trash2, Music, Globe, Lock, Link, X } from 'lucide-react';
 import useMusicPlayerStore from '../../../../store/student/musicPlayerStore';
 
@@ -6,6 +8,7 @@ const UserPlaylists = () => {
   const [showAddTrack, setShowAddTrack] = useState(null);
   const [newTrack, setNewTrack] = useState({ url: '', title: '', artist: '' });
   const [errors, setErrors] = useState({});
+  const [isFetchingTitle, setIsFetchingTitle] = useState(false);
 
   const {
     userPlaylists,
@@ -69,44 +72,83 @@ const UserPlaylists = () => {
     } catch {
       return false;
     }
+  } 
+
+  // Fetch YouTube video title and channel using YouTube Data API
+  const fetchYouTubeInfo = async (url) => {
+    try {
+      setIsFetchingTitle(true);
+      // Extract videoId from URL
+      const match = url.match(/[?&]v=([^&#]+)|youtu\.be\/([^&#?/]+)/);
+      const videoId = match ? (match[1] || match[2]) : null;
+      if (!videoId) return {};
+      const apiUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${YOUTUBE_API_KEY}`;
+      const response = await fetch(apiUrl);
+      const data = await response.json();
+      if (data.items && data.items.length > 0) {
+        const snippet = data.items[0].snippet;
+        return {
+          title: snippet.title,
+          artist: snippet.channelTitle
+        };
+      }
+    } catch (e) {
+      // ignore
+    } finally {
+      setIsFetchingTitle(false);
+    }
+    return {};
   };
 
   const handleAddTrack = async (playlistId) => {
     const newErrors = {};
-    
     if (!newTrack.url.trim()) {
       newErrors.url = 'URL is required';
     } else if (!validateUrl(newTrack.url)) {
       newErrors.url = 'Please enter a valid URL';
     }
-    
     if (!newTrack.title.trim()) {
       newErrors.title = 'Title is required';
     }
-    
     if (!newTrack.artist.trim()) {
       newErrors.artist = 'Artist is required';
     }
-
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
       return;
     }
-
     const trackData = {
       url: newTrack.url.trim(),
       title: newTrack.title.trim(),
-      artist: newTrack.artist.trim()
+      artist: newTrack.artist.trim(),
+      source: /youtube\.com|youtu\.be/.test(newTrack.url.trim()) ? 'youtube' : 'custom'
     };
-
     const success = await addTrackToPlaylist(playlistId, trackData);
-    
     if (success) {
       setNewTrack({ url: '', title: '', artist: '' });
       setShowAddTrack(null);
       setErrors({});
     }
   };
+
+  // When the URL changes, if it's a YouTube link, auto-fetch the title and artist
+  useEffect(() => {
+    const tryFetchInfo = async () => {
+      const url = newTrack.url.trim();
+      if (/youtube\.com|youtu\.be/.test(url) && (!newTrack.title || !newTrack.artist)) {
+        const info = await fetchYouTubeInfo(url);
+        if (info.title || info.artist) {
+          setNewTrack(prev => ({
+            ...prev,
+            title: info.title || prev.title,
+            artist: info.artist || prev.artist
+          }));
+        }
+      }
+    };
+    tryFetchInfo();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newTrack.url]);
 
   const handleRemoveTrack = async (playlistId, trackIndex, trackTitle) => {
     if (window.confirm(`Remove "${trackTitle}" from playlist?`)) {
@@ -172,8 +214,10 @@ const UserPlaylists = () => {
       {userPlaylists.length === 0 ? (
         <div className="text-center py-12 bg-gray-50 rounded-lg">
           <Music className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-          <h4 className="text-lg font-medium text-gray-600 mb-2">No Custom Playlists Yet</h4>
-          <p className="text-gray-500 mb-4">Create your first playlist to get started!</p>
+          <h4 className="text-lg font-medium text-gray-800">No Playlists Found</h4>
+          <p className="text-sm text-gray-500 mt-1">
+            Create a new playlist to get started.
+          </p>
         </div>
       ) : (
         userPlaylists.map((playlist) => (
@@ -235,7 +279,11 @@ const UserPlaylists = () => {
                           errors.url ? 'border-red-300' : 'border-gray-300'
                         }`}
                         placeholder="https://www.youtube.com/watch?v=..."
+                        autoComplete="off"
                       />
+                      {isFetchingTitle && /youtube\.com|youtu\.be/.test(newTrack.url) && (
+                        <span className="text-xs text-blue-500 ml-2">Fetching title...</span>
+                      )}
                     </div>
                     {errors.url && (
                       <p className="text-red-500 text-xs mt-1">{errors.url}</p>

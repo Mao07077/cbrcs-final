@@ -7,45 +7,49 @@ const DetailRow = ({ label, oldValue, newValue }) => (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
       <div className="text-sm">
         <span className="text-gray-500">Current: </span>
-        <span className="text-gray-700">{oldValue || "N/A"}</span>
+        <span className="text-gray-700">{oldValue !== undefined && oldValue !== null ? oldValue : ""}</span>
       </div>
       <div className="text-sm">
         <span className="text-green-600 font-semibold">New: </span>
-        <span className="text-green-700 font-bold">{newValue}</span>
+        <span className="text-green-700 font-bold">{newValue !== undefined && newValue !== null ? newValue : ""}</span>
       </div>
     </div>
   </div>
 );
 
 const RequestDetailsModal = () => {
-  const { selectedRequest, closeModal, acceptRequest, declineRequest } =
-    useRequestStore();
+  const { selectedRequest, closeModal, acceptRequest, declineRequest } = useRequestStore();
 
   if (!selectedRequest) return null;
 
-  const { _id, id_number, firstname, lastname, program, update_data } =
-    selectedRequest;
-
+  const { _id, id_number, firstname, lastname, program } = selectedRequest;
+  // Support both 'update_data' and 'requested_changes' fields
+  const updatePayload = selectedRequest.update_data || selectedRequest.requested_changes || {};
+  // Remove 'username' field and show real current values
+  const filteredKeys = Object.keys(updatePayload).filter((key) => key !== "username");
   return (
     <Modal
       isOpen={!!selectedRequest}
       onClose={closeModal}
-      title={`Update Request: ${firstname} ${lastname}`}
+      title={`Update Request: ${firstname || ""} ${lastname || ""}`}
+      style={{ maxWidth: '500px', width: '100%', maxHeight: '80vh', overflow: 'auto' }}
     >
-      <div className="mt-4">
+      <div className="mt-4" style={{ maxHeight: '65vh', overflowY: 'auto' }}>
         <p className="text-sm text-gray-600 mb-4">Review the requested changes for ID: <span className="font-semibold">{id_number}</span></p>
-        
         <div className="bg-gray-50 p-3 sm:p-4 rounded-lg border">
-          {Object.keys(update_data).map((key) => (
-            <DetailRow
-              key={key}
-              label={key.charAt(0).toUpperCase() + key.slice(1)}
-              oldValue={selectedRequest[key]}
-              newValue={update_data[key]}
-            />
-          ))}
+          {filteredKeys.length === 0 ? (
+            <p className="text-gray-500">No changes requested.</p>
+          ) : (
+            filteredKeys.map((key) => (
+              <DetailRow
+                key={key}
+                label={key.charAt(0).toUpperCase() + key.slice(1)}
+                oldValue={selectedRequest[key]}
+                newValue={updatePayload[key]}
+              />
+            ))
+          )}
         </div>
-
         <div className="flex flex-col sm:flex-row justify-end gap-3 mt-6">
           <button
             onClick={closeModal}

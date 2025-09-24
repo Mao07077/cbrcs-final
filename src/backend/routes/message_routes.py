@@ -1,5 +1,14 @@
 from fastapi import APIRouter, HTTPException, Body
+import asyncio
 from database import messages_collection, users_collection
+import json
+from fastapi import Request
+import sys
+sys.path.append('..')
+try:
+    from routes.chat_websocket import global_online_users
+except ImportError:
+    global_online_users = None
 from datetime import datetime
 from bson import ObjectId
 
@@ -21,34 +30,87 @@ def get_messages(sender: str, receiver: str):
     
     return messages
 
+
 @router.post("/api/send-message")
-def send_message(message_data: dict = Body(...)):
-    """Send a message between users"""
-    required_fields = ["sender_id", "receiver_id", "message"]
+def send_message(message_data: dict = Body(...), request: Request = None):
+    """Send a message between users. Accepts either receiver_id or receiver_name."""
+    required_fields = ["sender_id", "message"]
+    if not any(["receiver_id" in message_data, "receiver_name" in message_data]):
+        raise HTTPException(status_code=400, detail="Missing receiver_id or receiver_name")
     if not all(field in message_data for field in required_fields):
         raise HTTPException(status_code=400, detail="Missing required fields")
-    
-    # Verify both users exist
+
+    # Verify sender exists
     sender = users_collection.find_one({"id_number": message_data["sender_id"]})
-    receiver = users_collection.find_one({"id_number": message_data["receiver_id"]})
-    
     if not sender:
         raise HTTPException(status_code=404, detail="Sender not found")
-    if not receiver:
-        raise HTTPException(status_code=404, detail="Receiver not found")
-    
+
+    # Get receiver_id from name if needed
+    receiver_id = message_data.get("receiver_id")
+    if not receiver_id:
+        receiver_name = message_data.get("receiver_name")
+        if not receiver_name:
+            raise HTTPException(status_code=400, detail="Missing receiver_name")
+        # Try to find user by full name (case-insensitive)
+        receiver = users_collection.find_one({
+            "$expr": {
+                "$regexMatch": {
+                    "input": {"$concat": ["$firstname", " ", "$lastname"]},
+                    "regex": f"^{receiver_name}$",
+                    "options": "i"
+                }
+            }
+        })
+        if not receiver:
+            raise HTTPException(status_code=404, detail=f"Receiver '{receiver_name}' not found")
+        receiver_id = receiver["id_number"]
+    else:
+        receiver = users_collection.find_one({"id_number": receiver_id})
+        if not receiver:
+            raise HTTPException(status_code=404, detail="Receiver not found")
+
     # Create message document
     message_doc = {
         "sender_id": message_data["sender_id"],
-        "receiver_id": message_data["receiver_id"],
+        "receiver_id": receiver_id,
         "message": message_data["message"],
         "timestamp": datetime.utcnow(),
         "read": False
     }
-    
+
     result = messages_collection.insert_one(message_doc)
     message_doc["_id"] = str(result.inserted_id)
-    
+
+    # Broadcast to sender and receiver via WebSocket if online
+    ws_message = {
+        "type": "chat_message",
+        "chat_id": message_data.get("chat_id", ""),
+        "sender_id": message_data["sender_id"],
+        "sender_name": sender.get("firstname", "") + " " + sender.get("lastname", ""),
+        "recipient_id": receiver_id,
+        "message": message_data["message"],
+        "timestamp": message_doc["timestamp"].isoformat(),
+        "_id": message_doc["_id"]
+    }
+    # Use asyncio.create_task to avoid blocking
+    async def send_ws():
+        if global_online_users:
+            for uid in [message_data["sender_id"], receiver_id]:
+                user_ws = global_online_users.get(uid, {}).get("websocket")
+                if user_ws:
+                    try:
+                        await user_ws.send_text(json.dumps(ws_message))
+                    except Exception:
+                        pass
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.create_task(send_ws())
+        else:
+            loop.run_until_complete(send_ws())
+    except Exception:
+        pass
+
     return {"success": True, "message": message_doc}
 
 @router.get("/api/conversations/student/{student_id}")

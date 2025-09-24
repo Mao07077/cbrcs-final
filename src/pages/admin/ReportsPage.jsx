@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from "react";
 import useReportStore from "../../store/admin/reportStore";
+import useAdminDashboardStore from "../../store/admin/adminDashboardStore";
 import AnalyticsDashboard from "../../features/admin/adminReports/components/AnalyticsDashboard";
 import ReportsTable from "../../features/admin/adminReports/components/ReportsTable";
 import ReportDetailsModal from "../../features/admin/adminReports/components/ReportDetailsModal";
@@ -14,6 +15,8 @@ const ReportsPage = () => {
     error,
   } = useReportStore();
   const [filters, setFilters] = useState({ query: "", status: "All" });
+  // Use dashboard store to get reportsThisWeek
+  const { stats } = useAdminDashboardStore();
 
   useEffect(() => {
     fetchReports();
@@ -33,7 +36,7 @@ const ReportsPage = () => {
       <h1 className="text-2xl md:text-3xl font-bold text-primary-dark mb-6">
         Reports & Analytics
       </h1>
-      <AnalyticsDashboard reports={reports} />
+      <AnalyticsDashboard reports={reports} reportsThisWeek={stats.reportsThisWeek} />
 
       <div className="my-6 p-4 bg-gray-50 rounded-lg border">
         <div className="flex flex-col sm:flex-row items-center gap-4">

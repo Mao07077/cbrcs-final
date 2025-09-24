@@ -52,6 +52,7 @@ import SendReportPage from "../../pages/student/SendReportPage";
 import InstructorDashboardPage from "../../pages/instructor/InstructorDashboardPage";
 import ModuleManagementPage from "../../pages/instructor/ModuleManagementPage";
 import PostTestManagementPage from "../../pages/instructor/PostTestManagementPage";
+import PreTestManagementPage from "../../features/instructor/instructorPostTests/PreTestManagementPage";
 import StudentListPage from "../../pages/instructor/StudentListPage";
 import InstructorChatPage from "../../pages/instructor/InstructorChatPage";
 
@@ -59,6 +60,7 @@ import InstructorChatPage from "../../pages/instructor/InstructorChatPage";
 import AdminDashboardPage from "../../pages/admin/AdminDashboardPage";
 import AccountsManagementPage from "../../pages/admin/AccountsManagementPage";
 import PostManagementPage from "../../pages/admin/PostManagementPage";
+import PostFrom from "../../features/admin/adminPosts/components/PostForm";
 import ReportsPage from "../../pages/admin/ReportsPage";
 import AccountsUpdateRequestsPage from "../../pages/admin/AccountUpdateRequestsPage";
 import StudentPerformancePage from "../../pages/admin/StudentPerformancePage";
@@ -116,8 +118,8 @@ const instructorNavLinks = [
   { path: "/instructor/dashboard", label: "Dashboard", icon: <FiHome /> },
   { path: "/instructor/modules", label: "Module Management", icon: <FiBook /> },
   {
-    path: "/instructor/post-tests",
-    label: "Post-Tests",
+    path: "/instructor/pre-tests",
+    label: "Pre-Tests",
     icon: <FiClipboard />,
   },
   { path: "/instructor/students", label: "Student List", icon: <FiUsers /> },
@@ -211,7 +213,7 @@ export const routesConfig = [
     children: [
       { path: "dashboard", element: <InstructorDashboardPage /> },
       { path: "modules", element: <ModuleManagementPage /> },
-      { path: "post-tests", element: <PostTestManagementPage /> },
+  { path: "pre-tests", element: <PreTestManagementPage /> },
       { path: "students", element: <StudentListPage /> },
       { path: "messages", element: <InstructorChatPage /> },
     ],
